@@ -167,3 +167,6 @@ main { padding: 16px; max-width: 1200px; width: 100%; min-width: 0; margin: 0 au
 blockquote { border-left: 2px solid var(--yellow); padding: 4px 0 4px 12px; }
 ul.plain { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 ul.plain li::before { content: '— '; color: var(--muted); }
+
+.sync-dot { display: grid; place-items: center; width: 28px; height: 28px; background: transparent; border: 1px solid var(--line-strong); cursor: pointer; }
+.sync-dot .dot { width: 8px; height: 8px; border-radius: 50%; }

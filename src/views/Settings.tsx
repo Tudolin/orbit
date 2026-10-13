@@ -3,6 +3,7 @@ import { db, exportAll, getSetting, importAll, setSetting } from '../db';
 import { DEFAULT_MODEL, EFFORTS, MODELS } from '../config';
 import { recorderSupported, speechSupported } from '../media';
 import { Section } from '../components/ui';
+import { SyncPanel } from './SyncPanel';
 
 export function Settings() {
   const [key, setKey] = useState('');
@@ -111,9 +112,11 @@ export function Settings() {
         <button className="btn primary" onClick={save}>Salvar configurações</button>
       </div>
 
+      <SyncPanel />
+
       <Section title="💾 Dados locais" dot="green">
         <div className="stack">
-          <div className="hint">Tudo fica neste dispositivo (local-first). Exporte um backup para levar ao computador e importe lá.</div>
+          <div className="hint">Os dados ficam neste aparelho e, com a sincronização ligada, também na sua nuvem Supabase. O backup JSON é uma cópia extra.</div>
           <div className="row">
             <button className="btn" onClick={doExport}>Exportar backup</button>
             <label className="btn">Importar backup<input type="file" accept="application/json" hidden onChange={(e) => doImport(e.target.files?.[0])} /></label>
@@ -123,11 +126,13 @@ export function Settings() {
             className="btn danger"
             onClick={async () => {
               if (!wipe) return setWipe(true);
+              // Apaga só este aparelho; com sincronização ligada, tudo volta da nuvem ao recarregar.
+              Object.keys(localStorage).filter((k) => k.startsWith('nexus.')).forEach((k) => localStorage.removeItem(k));
               await db.delete();
               location.reload();
             }}
           >
-            {wipe ? 'Confirmar: apagar tudo' : 'Apagar todos os dados'}
+            {wipe ? 'Confirmar: apagar dados deste aparelho' : 'Apagar dados deste aparelho'}
           </button>
         </div>
       </Section>

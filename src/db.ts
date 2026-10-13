@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Transaction } from 'dexie';
 import type { EngineResult } from './engine';
 
 export type Prioridade = 'alta' | 'media' | 'baixa';
@@ -10,6 +10,7 @@ export interface Workspace {
   nome: string;
   ordem: number;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface CaptureImage {
@@ -26,6 +27,7 @@ export interface Capture {
   erro?: string;
   resultado?: EngineResult;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface AgendaEvent {
@@ -38,6 +40,7 @@ export interface AgendaEvent {
   tags: string[];
   captureId?: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Task {
@@ -51,6 +54,7 @@ export interface Task {
   tags: string[];
   captureId?: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Note {
@@ -62,6 +66,7 @@ export interface Note {
   tags: string[];
   captureId?: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Setting {
@@ -87,15 +92,94 @@ db.version(1).stores({
   settings: 'key',
 });
 
+// v2: updatedAt em todo registro sincronizável (base do last-write-wins).
+db.version(2)
+  .stores({
+    workspaces: 'id, ordem, updatedAt',
+    captures: 'id, status, createdAt, updatedAt',
+    events: 'id, workspaceId, inicio, updatedAt',
+    tasks: 'id, workspaceId, status, prazo, prioridade, updatedAt',
+    notes: 'id, workspaceId, createdAt, updatedAt',
+  })
+  .upgrade(async (tx) => {
+    markSyncTx(tx);
+    for (const t of SYNC_TABLES) {
+      await tx.table(t).toCollection().modify((r: { updatedAt?: number; createdAt?: number }) => {
+        r.updatedAt ??= r.createdAt ?? Date.now();
+      });
+    }
+  });
+
+// IDs fixos: dois aparelhos novos não duplicam os workspaces padrão ao sincronizar.
+// updatedAt = 1 faz qualquer versão já existente na nuvem prevalecer sobre a semente.
 db.on('populate', (tx) => {
-  const now = Date.now();
-  tx.table('workspaces').bulkAdd([
-    { id: uid(), nome: 'Empresa A', ordem: 0, createdAt: now },
-    { id: uid(), nome: 'Empresa B', ordem: 1, createdAt: now },
-    { id: uid(), nome: 'Empresa C', ordem: 2, createdAt: now },
-    { id: uid(), nome: 'Pessoal', ordem: 3, createdAt: now },
-  ]);
+  markSyncTx(tx);
+  tx.table('workspaces').bulkAdd(
+    ['Empresa A', 'Empresa B', 'Empresa C', 'Pessoal'].map((nome, ordem) => ({
+      id: `ws-${nome.toLowerCase().replace(/\s+/g, '-')}`,
+      nome,
+      ordem,
+      createdAt: 1,
+      updatedAt: 1,
+    })),
+  );
 });
+
+// ---------- Rastreamento de mudanças para a sincronização ----------
+
+export const SYNC_TABLES = ['workspaces', 'captures', 'events', 'tasks', 'notes'] as const;
+export type SyncTable = (typeof SYNC_TABLES)[number];
+
+const SYNC_FLAG = '__nexusSync';
+/** Marca uma transação como aplicação de dados remotos: hooks não carimbam nem geram tombstones. */
+export function markSyncTx(tx: Transaction): void {
+  (tx as unknown as Record<string, boolean>)[SYNC_FLAG] = true;
+}
+const isSyncTx = (tx: Transaction) => !!(tx as unknown as Record<string, boolean>)[SYNC_FLAG];
+
+export interface Tombstone {
+  tbl: SyncTable;
+  id: string;
+  at: number;
+}
+const TOMB_KEY = 'nexus.tombstones';
+export function readTombstones(): Tombstone[] {
+  try {
+    return JSON.parse(localStorage.getItem(TOMB_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+export function clearTombstones(upTo: number): void {
+  localStorage.setItem(TOMB_KEY, JSON.stringify(readTombstones().filter((t) => t.at > upTo)));
+}
+
+let changeListener: (() => void) | null = null;
+export function onLocalChange(fn: (() => void) | null): void {
+  changeListener = fn;
+}
+
+for (const tbl of SYNC_TABLES) {
+  const table = db.table(tbl);
+  table.hook('creating', (_key, obj: { updatedAt?: number }, tx) => {
+    if (isSyncTx(tx)) return;
+    obj.updatedAt = Date.now();
+    tx.on('complete', () => changeListener?.());
+  });
+  table.hook('updating', (_mods, _key, _obj, tx) => {
+    if (isSyncTx(tx)) return;
+    tx.on('complete', () => changeListener?.());
+    return { updatedAt: Date.now() };
+  });
+  table.hook('deleting', (key, _obj, tx) => {
+    if (isSyncTx(tx)) return;
+    const at = Date.now();
+    tx.on('complete', () => {
+      localStorage.setItem(TOMB_KEY, JSON.stringify([...readTombstones(), { tbl, id: String(key), at }]));
+      changeListener?.();
+    });
+  });
+}
 
 export function uid(): string {
   return crypto.randomUUID();

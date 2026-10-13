@@ -19,7 +19,29 @@ npm run build      # typecheck + build PWA em dist/
 npm run preview
 ```
 
-`dist/` é estático: pode ser publicado em qualquer host HTTPS (GitHub Pages, Netlify, Vercel, Cloudflare Pages). Para instalar no celular, abra a URL e use "Adicionar à tela inicial". Câmera, microfone e service worker exigem HTTPS (ou `localhost`).
+## Publicar na Vercel + sincronizar (celular ↔ computador)
+
+**1. Supabase (nuvem dos dados, plano gratuito)**
+1. Crie um projeto em [supabase.com](https://supabase.com).
+2. Em **SQL Editor**, cole e rode o conteúdo de [`supabase/schema.sql`](supabase/schema.sql).
+3. Em **Project Settings → API**, copie a **Project URL** e a chave **anon public**.
+4. (Opcional) Em **Authentication → Sign In / Providers → Email**, desligue "Confirm email" para não precisar confirmar a conta por e-mail.
+
+**2. Vercel (hospedagem, plano gratuito)**
+1. Em [vercel.com](https://vercel.com) → **Add New → Project**, importe este repositório. O preset **Vite** é detectado sozinho.
+2. Em **Environment Variables**, adicione:
+   - `VITE_SUPABASE_URL` = Project URL
+   - `VITE_SUPABASE_ANON_KEY` = anon public key
+3. Clique em **Deploy**. Cada push no branch publicado gera um novo deploy.
+
+**3. Em cada aparelho**
+1. Abra a URL da Vercel. No celular, use "Adicionar à tela inicial".
+2. Vá em **Config → Sincronização** e crie a conta (no primeiro aparelho) ou entre com ela (nos demais).
+3. Sua `ANTHROPIC_API_KEY` precisa ser informada em cada aparelho, porque ela não vai para a nuvem.
+
+> No iPhone, o app da tela inicial e o Safari têm armazenamentos separados: entre na conta nos dois se usar ambos.
+
+Câmera, microfone e service worker exigem HTTPS (a Vercel já fornece).
 
 ## Como funciona
 
@@ -28,9 +50,17 @@ npm run preview
 3. **Revisão (Modelo 1)**: você confere o workspace sugerido (ou cria um novo), desmarca o que não quer e envia. Eventos, tarefas e a nota de contexto vão para o workspace.
 4. **Visões**: Hoje (timeline + prioridades + entregas), Semana (matriz workspace × dia com volume por cor), Workspaces (Agenda, Kanban, Cérebro) e Busca (palavras-chave + `#tags` + filtro por workspace).
 
-## Dados (local-first)
+## Dados e sincronização
 
-Tudo fica no **IndexedDB** do navegador (Dexie): `workspaces`, `captures`, `events`, `tasks`, `notes`, `settings`. Não há servidor próprio. Use **Config → Exportar/Importar backup** (JSON) para mover os dados entre celular e computador.
+Cada aparelho guarda tudo no **IndexedDB** (Dexie), então o app abre e funciona offline. Com a sincronização ligada, a nuvem Supabase vira o ponto de encontro:
+
+- **Envio**: toda criação, edição ou exclusão é carimbada (`updatedAt`) e sobe em ~1,5 s. Exclusões viram *tombstones*.
+- **Recebimento**: o Supabase Realtime avisa os outros aparelhos na hora. Também há sincronização ao abrir o app, ao voltar a conexão e a cada 2 min.
+- **Conflitos**: vence a última edição (*last-write-wins* por registro). Um trigger no banco recusa versões mais antigas.
+- **Segurança**: Row Level Security, ou seja, cada conta só lê e grava os próprios registros.
+- **O que não sincroniza**: as configurações e as chaves de API, que ficam só em cada aparelho.
+
+O **Exportar/Importar backup** (JSON) continua disponível como cópia extra.
 
 ## Configuração
 
@@ -48,9 +78,12 @@ src/
   config.ts          modelos e níveis de esforço
   pipeline.ts        fila Inbox → engine → revisão (carrega o SDK sob demanda)
   media.ts           redimensionamento de imagem, gravação, Web Speech, Whisper
+  sync.ts            sincronização Supabase (push/pull, realtime, auth)
+  syncStatus.ts      estado da sincronização para a interface
   dates.ts           utilitários de data (semana ISO, fuso local)
   components/ui.tsx  blocos visuais e editores
-  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings
+  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel
+supabase/schema.sql  tabela, RLS, trigger last-write-wins e realtime
 ```
 
 ## Desvios do schema original

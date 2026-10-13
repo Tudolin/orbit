@@ -7,6 +7,7 @@ import { Today, Week } from './views/Dashboard';
 import { Workspaces } from './views/Workspaces';
 import { Search } from './views/Search';
 import { Settings } from './views/Settings';
+import { bootSync, statusLabel, useSyncStatus } from './views/SyncPanel';
 
 type View = 'inbox' | 'hoje' | 'semana' | 'areas' | 'busca' | 'config';
 
@@ -38,6 +39,7 @@ export function App() {
 
   useEffect(() => {
     resumeStuck();
+    bootSync();
     const on = () => setRoute(readHash());
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
@@ -47,6 +49,8 @@ export function App() {
     location.hash = `/${view}${ws ? `/${ws}` : ''}`;
   };
   const current = NAV.find((n) => n.id === route.view)!;
+  const sync = useSyncStatus();
+  const syncInfo = statusLabel(sync);
 
   return (
     <div className="app">
@@ -55,7 +59,14 @@ export function App() {
           <span className="brand-mark"><i /><i /><i /><i /></span>
           NEXUS
         </div>
-        <div className="view-title">{current.title}</div>
+        <div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}>
+          <div className="view-title">{current.title}</div>
+          {sync.state !== 'off' && (
+            <button className="sync-dot" title={syncInfo.text} aria-label={syncInfo.text} onClick={() => go('config')}>
+              <span className={`dot ${syncInfo.dot}`} />
+            </button>
+          )}
+        </div>
       </header>
       <nav className="nav" aria-label="Principal">
         {NAV.map((n) => (

@@ -18,6 +18,7 @@
   "homepage": "https://github.com/Tudolin/orbit#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
+    "@supabase/supabase-js": "^2.117.3",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "react": "^19.3.0",
