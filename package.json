@@ -1,0 +1,37 @@
+{
+  "name": "nexus",
+  "version": "0.1.0",
+  "description": "NEXUS — Segundo Cérebro: PWA mobile-first de agenda unificada, tasks e notas multi-workspace com engine Claude.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tudolin/orbit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Tudolin/orbit/issues"
+  },
+  "homepage": "https://github.com/Tudolin/orbit#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0"
+  },
+  "private": true,
+  "type": "module"
+}
