@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, uid, type AgendaEvent, type Note, type Prioridade, type Task, type TaskStatus, type Workspace } from '../db';
+import { db, uid, type AgendaEvent, type Note, type Prioridade, type Recorrencia, type Task, type TaskStatus, type Workspace } from '../db';
 import { fmtDateTime, fmtTime, fromLocalInput, parseISO, toLocalInput } from '../dates';
 
 export function useWorkspaces(): Workspace[] {
@@ -30,6 +30,7 @@ export const Empty = ({ children }: { children: ReactNode }) => <div className="
 
 export const PRIO_LABEL: Record<Prioridade, string> = { alta: 'ALTA', media: 'MÉDIA', baixa: 'BAIXA' };
 export const PRIO_RANK: Record<Prioridade, number> = { alta: 0, media: 1, baixa: 2 };
+export const REC_LABEL: Record<Recorrencia, string> = { diaria: 'Diária', semanal: 'Semanal', mensal: 'Mensal' };
 export const STATUS_LABEL: Record<TaskStatus, string> = { pendente: 'Pendente', 'em-andamento': 'Em andamento', concluido: 'Concluído' };
 
 export function taskColor(t: Task): string {
@@ -67,6 +68,7 @@ export function TaskItem({ task, wsName, onEdit }: { task: Task; wsName?: string
         <div className="item-meta">
           <span className={`chip ${task.prioridade === 'alta' ? 'red' : task.prioridade === 'media' ? 'orange' : ''}`}>{PRIO_LABEL[task.prioridade]}</span>
           {task.status === 'em-andamento' && <span className="chip orange">EM ANDAMENTO</span>}
+          {task.recorrencia && <span className="chip blue">↻ {REC_LABEL[task.recorrencia].toUpperCase()}</span>}
           <span className="mono" style={{ color: isOverdue(task) ? 'var(--red)' : undefined }}>
             {fmtDateTime(task.prazo)}
           </span>
@@ -172,7 +174,7 @@ export function TaskEditor({ task, defaultWs, onClose }: { task?: Task; defaultW
   );
   const [tags, setTags] = useState(d.tags.join(' '));
   const save = async () => {
-    if (!d.descricao.trim()) return;
+    if (!d.descricao.trim() || (d.recorrencia && !d.prazo)) return;
     await db.tasks.put({ ...d, tags: splitTags(tags) });
     onClose();
   };
@@ -193,6 +195,17 @@ export function TaskEditor({ task, defaultWs, onClose }: { task?: Task; defaultW
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
+      </div>
+      <div className="field">
+        <label className="label">Repetir</label>
+        <select className="select" value={d.recorrencia ?? ''} onChange={(e) => setD({ ...d, recorrencia: (e.target.value || undefined) as Recorrencia | undefined, diaMes: undefined })}>
+          <option value="">Não repete</option>
+          <option value="diaria">Todo dia</option>
+          <option value="semanal">Toda semana (mesmo dia da semana)</option>
+          <option value="mensal">Todo mês (mesmo dia do mês)</option>
+        </select>
+        {d.recorrencia && !d.prazo && <span className="hint" style={{ marginTop: 6, color: 'var(--red)' }}>Defina o prazo da primeira ocorrência.</span>}
+        {d.recorrencia && d.prazo && <span className="hint" style={{ marginTop: 6 }}>Ao concluir, a próxima ocorrência é criada sozinha.</span>}
       </div>
       <div className="field"><label className="label">Workspace</label><WorkspaceSelect value={d.workspaceId} onChange={(workspaceId) => setD({ ...d, workspaceId })} /></div>
       <div className="field"><label className="label">Tags</label><input className="input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="#empresa-a #prio/alta" /></div>

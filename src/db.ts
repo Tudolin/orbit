@@ -3,6 +3,7 @@ import type { EngineResult } from './engine';
 
 export type Prioridade = 'alta' | 'media' | 'baixa';
 export type TaskStatus = 'pendente' | 'em-andamento' | 'concluido';
+export type Recorrencia = 'diaria' | 'semanal' | 'mensal';
 export type CaptureStatus = 'pendente' | 'processando' | 'revisao' | 'triado' | 'erro';
 
 export interface Workspace {
@@ -55,6 +56,12 @@ export interface Task {
   captureId?: string;
   createdAt: number;
   updatedAt?: number;
+  /** Ao concluir, a próxima ocorrência é criada automaticamente. Exige prazo. */
+  recorrencia?: Recorrencia;
+  /** Id da primeira tarefa da série (ids das ocorrências derivam dele). */
+  serieId?: string;
+  /** Dia do mês original (mensal), para "dia 31" não virar "dia 28" para sempre após fevereiro. */
+  diaMes?: number;
 }
 
 export interface Note {
@@ -204,6 +211,53 @@ for (const tbl of SYNC_TABLES) {
   });
 }
 
+// ---------- Tarefas recorrentes ----------
+
+export function nextOccurrence(prazo: Date, rec: Recorrencia, diaMes?: number): Date {
+  const n = new Date(prazo);
+  if (rec === 'diaria') n.setDate(n.getDate() + 1);
+  else if (rec === 'semanal') n.setDate(n.getDate() + 7);
+  else {
+    const day = diaMes ?? prazo.getDate();
+    n.setDate(1);
+    n.setMonth(n.getMonth() + 1);
+    const last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+    n.setDate(Math.min(day, last));
+  }
+  return n;
+}
+
+async function spawnNext(t: Task) {
+  const prazo = t.prazo ? new Date(t.prazo) : null;
+  if (!prazo || isNaN(prazo.getTime()) || !t.recorrencia) return;
+  const serieId = t.serieId ?? t.id;
+  const diaMes = t.recorrencia === 'mensal' ? (t.diaMes ?? prazo.getDate()) : undefined;
+  const next = nextOccurrence(prazo, t.recorrencia, diaMes);
+  // Id determinístico: se dois aparelhos concluírem a mesma ocorrência, a próxima não duplica.
+  const id = `${serieId}@${next.getFullYear()}-${next.getMonth() + 1}-${next.getDate()}`;
+  if (await db.tasks.get(id)) return;
+  await db.tasks.add({
+    ...t,
+    id,
+    serieId,
+    diaMes,
+    prazo: next.toISOString(),
+    status: 'pendente',
+    captureId: undefined,
+    createdAt: Date.now(),
+    updatedAt: undefined,
+  });
+}
+
+db.tasks.hook('updating', (mods, _key, obj, tx) => {
+  if (isSyncTx(tx)) return;
+  const m = mods as Partial<Task>;
+  if (m.status === 'concluido' && obj.status !== 'concluido') {
+    const t = { ...obj, ...m } as Task;
+    if (t.recorrencia) tx.on('complete', () => void spawnNext(t));
+  }
+});
+
 export function uid(): string {
   return crypto.randomUUID();
 }
@@ -262,6 +316,7 @@ export async function commitCapture(capture: Capture, workspaceId: string, r: En
         prioridade: t.prioridade,
         status: 'pendente' as const,
         origem: t.origem,
+        recorrencia: t.recorrencia === 'nenhuma' || !t.prazo ? undefined : t.recorrencia,
         tags: r.tags,
         captureId: capture.id,
         createdAt: now,

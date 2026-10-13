@@ -285,6 +285,7 @@ function Review({ capture, result }: { capture: Capture; result: EngineResult })
               <span className={`dot ${t.prioridade === 'alta' ? 'red' : 'orange'}`} />
               <span style={{ flex: 1 }}>{t.descricao}</span>
               <span className="chip">{PRIO_LABEL[t.prioridade]}</span>
+              {t.recorrencia !== 'nenhuma' && <span className="chip blue">↻ {t.recorrencia}</span>}
               <span className="mono" style={{ fontSize: 12 }}>{fmtDateTime(t.prazo)}</span>
             </label>
           ))}

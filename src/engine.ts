@@ -61,6 +61,7 @@ const EngineSchema = z.object({
       prazo: z.string().nullable(),
       prioridade: z.enum(['alta', 'media', 'baixa']),
       origem: z.enum(['jira', 'teams', 'foto', 'audio', 'texto']),
+      recorrencia: z.enum(['nenhuma', 'diaria', 'semanal', 'mensal']),
     }),
   ),
   segundo_cerebro_contexto: z.object({
@@ -94,6 +95,7 @@ function contextBlock(input: EngineInput): string {
     `- Agora: ${hoje}, ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} (fuso ${tz}, UTC${offset}).`,
     `- Resolva datas relativas ("amanhã", "sexta") a partir de hoje e escreva todas as datas ISO 8601 com o offset ${offset}.`,
     `- Prazo sem horário: use 18:00 do dia. Evento sem fim explícito: data_fim = null.`,
+    `- Tarefa que se repete ("todo dia 9", "toda segunda", "diariamente"): preencha recorrencia (mensal/semanal/diaria) e use como prazo a PRÓXIMA ocorrência. Senão, recorrencia = "nenhuma".`,
     `- Workspaces existentes: ${input.workspaces.map((w) => `"${w}"`).join(', ') || '(nenhum)'}. Em workspace_sugerido, use exatamente um desses nomes quando o contexto permitir; senão sugira um nome curto novo.`,
     `- Tags no padrão #workspace, #origem/x, #prio/x, #status/x (sem espaços).`,
     `- Origem da captura: ${input.imagens.length ? 'imagem/print' : input.viaAudio ? 'transcrição de áudio (use origem "audio")' : 'texto digitado (use origem "texto" se nenhuma outra se aplicar)'}.`,
