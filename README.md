@@ -37,9 +37,21 @@ npm run preview
 **3. Em cada aparelho**
 1. Abra a URL da Vercel. No celular, use "Adicionar à tela inicial".
 2. Vá em **Config → Sincronização** e crie a conta (no primeiro aparelho) ou entre com ela (nos demais).
-3. Sua `ANTHROPIC_API_KEY` precisa ser informada em cada aparelho, porque ela não vai para a nuvem.
+3. Informe a `ANTHROPIC_API_KEY` em **um** aparelho e toque em Salvar. Os outros aparelhos a recebem cifrada ao entrar na conta.
 
 > No iPhone, o app da tela inicial e o Safari têm armazenamentos separados: entre na conta nos dois se usar ambos.
+
+> Atualizou o app? Rode `supabase/schema.sql` de novo no SQL Editor. O script pode ser executado várias vezes e libera as tabelas novas.
+
+## Instalar como app no Android (sem navegador)
+
+1. Abra a URL da Vercel no **Chrome** ou no **Samsung Internet**.
+2. Toque em **Instalar NEXUS** (banner na Inbox ou em Config). Se o botão não aparecer, use o menu:
+   - Chrome: **⋮ → Instalar app**
+   - Samsung Internet: **☰ → Adicionar página a → Tela inicial**
+3. O Android cria um **WebAPK**: um app instalado de verdade, com ícone na gaveta de apps, tela cheia e sem barra do navegador. Ele aparece no menu Compartilhar e tem atalhos ao segurar o ícone (Captura rápida, Hoje, Busca). Ele também se atualiza sozinho a cada deploy.
+
+**APK para instalar manualmente ou publicar na Play Store (opcional):** em [pwabuilder.com](https://www.pwabuilder.com), informe a URL da Vercel e gere o pacote Android (Trusted Web Activity). Depois, coloque o `assetlinks.json` gerado em `public/.well-known/assetlinks.json` e faça o deploy, para o app abrir sem barra de endereço. A digital continua funcionando, porque o pacote roda sobre o Chrome.
 
 Câmera, microfone e service worker exigem HTTPS (a Vercel já fornece).
 
@@ -58,7 +70,8 @@ Cada aparelho guarda tudo no **IndexedDB** (Dexie), então o app abre e funciona
 - **Recebimento**: o Supabase Realtime avisa os outros aparelhos na hora. Também há sincronização ao abrir o app, ao voltar a conexão e a cada 2 min.
 - **Conflitos**: vence a última edição (*last-write-wins* por registro). Um trigger no banco recusa versões mais antigas.
 - **Segurança**: Row Level Security, ou seja, cada conta só lê e grava os próprios registros.
-- **O que não sincroniza**: as configurações e as chaves de API, que ficam só em cada aparelho.
+- **Chaves de API e preferências da engine**: sincronizadas com **criptografia de ponta a ponta**. A chave AES-256-GCM é derivada da senha da conta (PBKDF2, 310 mil iterações) em cada aparelho e nunca sai dele. Na nuvem fica só o texto cifrado.
+- **O que não sincroniza**: PIN, digital e bloqueio (são de cada aparelho) e a configuração do Supabase.
 
 O **Exportar/Importar backup** (JSON) continua disponível como cópia extra.
 
@@ -75,7 +88,7 @@ O bloqueio protege o acesso pelo aparelho. Os dados na nuvem são protegidos pel
 
 ## Configuração
 
-- **ANTHROPIC_API_KEY**: inserida em Config e enviada direto do navegador para `api.anthropic.com`. Ela fica guardada no IndexedDB deste dispositivo. Use uma chave dedicada com limite de gasto.
+- **ANTHROPIC_API_KEY**: inserida em Config e enviada direto do navegador para `api.anthropic.com`. Com a sincronização ligada, ela vai cifrada para os outros aparelhos. Se você trocar a senha da conta, salve a chave de novo para regravar o cofre. Use uma chave dedicada com limite de gasto.
 - **Modelo**: Claude Opus 5.5 (padrão), Sonnet 5.5 ou Haiku 5.5. Esforço padrão: médio.
 - **Fallback em recusas**: Opus e Sonnet usam `fallbacks: "default"` (server-side), para que uma recusa falso-positiva seja refeita em outro modelo.
 - **Áudio**: transcrição ao vivo pela Web Speech API (Chrome/Edge/Safari). Opcionalmente, com uma chave OpenAI, o áudio gravado vai para o Whisper (`whisper-1`).
@@ -91,10 +104,12 @@ src/
   media.ts           redimensionamento de imagem, gravação, Web Speech, Whisper
   lock.ts            PIN (PBKDF2), biometria WebAuthn, redefinição do aparelho
   sync.ts            sincronização Supabase (push/pull, realtime, auth)
+  vault.ts           cofre cifrado (AES-GCM) das chaves de API, sincronizado
+  install.ts         convite de instalação do app (WebAPK)
   syncStatus.ts      estado da sincronização para a interface
   dates.ts           utilitários de data (semana ISO, fuso local)
   components/ui.tsx  blocos visuais e editores
-  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel, SecurityPanel, LockScreen
+  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel, SecurityPanel, LockScreen, InstallPanel
 supabase/schema.sql  tabela, RLS, trigger last-write-wins e realtime
 ```
 

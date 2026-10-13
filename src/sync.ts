@@ -1,5 +1,6 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import { setStatus } from './syncStatus';
+import { deriveVaultKey, forgetVaultKey } from './vault';
 import { clearTombstones, db, getSetting, markSyncTx, onLocalChange, readTombstones, SYNC_TABLES, type SyncTable } from './db';
 
 /**
@@ -58,9 +59,20 @@ export async function currentUser(): Promise<{ id: string; email?: string } | nu
 export async function signIn(email: string, password: string): Promise<void> {
   const c = await getClient();
   if (!c) throw new Error('Configure o Supabase primeiro.');
-  const { error } = await c.auth.signInWithPassword({ email, password });
+  const { data, error } = await c.auth.signInWithPassword({ email, password });
   if (error) throw new Error(translateAuth(error.message));
+  await deriveVaultKey(password, data.user.id);
   await start();
+}
+
+/** Para aparelhos já conectados antes do cofre: confirma a senha e libera as chaves sincronizadas. */
+export async function unlockVault(password: string): Promise<void> {
+  const c = await getClient();
+  const user = await currentUser();
+  if (!c || !user?.email) throw new Error('Entre na sua conta primeiro.');
+  const { error } = await c.auth.signInWithPassword({ email: user.email, password });
+  if (error) throw new Error(translateAuth(error.message));
+  await deriveVaultKey(password, user.id);
 }
 
 /** Retorna true se a conta já está ativa; false se o Supabase exige confirmar o e-mail. */
@@ -69,12 +81,14 @@ export async function signUp(email: string, password: string): Promise<boolean> 
   if (!c) throw new Error('Configure o Supabase primeiro.');
   const { data, error } = await c.auth.signUp({ email, password });
   if (error) throw new Error(translateAuth(error.message));
+  if (data.user) await deriveVaultKey(password, data.user.id);
   if (data.session) await start();
   return !!data.session;
 }
 
 export async function signOut(): Promise<void> {
   stop();
+  await forgetVaultKey();
   await client?.auth.signOut();
   setStatus({ state: 'signed-out' });
 }

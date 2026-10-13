@@ -10,6 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
+        id: './',
         name: 'NEXUS — Segundo Cérebro',
         short_name: 'NEXUS',
         description: 'Segundo Cérebro, agenda unificada e tasks multi-workspace.',
@@ -17,6 +18,8 @@ export default defineConfig({
         start_url: './',
         scope: './',
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
+        categories: ['productivity'],
         orientation: 'portrait',
         background_color: '#0D0D0D',
         theme_color: '#0D0D0D',
@@ -25,6 +28,11 @@ export default defineConfig({
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' },
+        ],
+        shortcuts: [
+          { name: 'Captura rápida', short_name: 'Capturar', url: './#/inbox', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+          { name: 'Hoje', url: './#/hoje', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+          { name: 'Busca', url: './#/busca', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
         ],
         share_target: {
           action: './',

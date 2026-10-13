@@ -2,7 +2,7 @@
 
 create table if not exists public.nexus_records (
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
-  tbl text not null check (tbl in ('workspaces', 'captures', 'events', 'tasks', 'notes')),
+  tbl text not null,
   id text not null,
   data jsonb,
   deleted boolean not null default false,
@@ -10,6 +10,11 @@ create table if not exists public.nexus_records (
   updated_at timestamptz not null default clock_timestamp(),
   primary key (user_id, tbl, id)
 );
+
+-- Tabelas aceitas (recriada para permitir novas tabelas em atualizações do app).
+alter table public.nexus_records drop constraint if exists nexus_records_tbl_check;
+alter table public.nexus_records add constraint nexus_records_tbl_check
+  check (tbl in ('workspaces', 'captures', 'events', 'tasks', 'notes', 'vault'));
 
 create index if not exists nexus_records_pull on public.nexus_records (user_id, updated_at);
 

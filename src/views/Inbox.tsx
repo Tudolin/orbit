@@ -5,6 +5,8 @@ import type { EngineResult } from '../engine';
 import { imageSrc, imageToCapture, recorderSupported, speechSupported, startRecording, whisperTranscribe, type Recording } from '../media';
 import { runCapture } from '../pipeline';
 import { fmtDateTime } from '../dates';
+import { canPromptInstall, isInstalled, promptInstall } from '../install';
+import { useCanInstall } from './InstallPanel';
 import { Empty, PRIO_LABEL, Section, Tags, useWorkspaces } from '../components/ui';
 
 export function Inbox({ shared }: { shared: string }) {
@@ -14,6 +16,7 @@ export function Inbox({ shared }: { shared: string }) {
 
   return (
     <div className="stack" style={{ gap: 16 }}>
+      <InstallBanner />
       <Composer shared={shared} />
       <Section title="Triagem" dot="red" count={open.length} flush>
         {open.length === 0 ? <Empty>Inbox zerada. 🟢</Empty> : open.map((c) => <CaptureCard key={c.id} capture={c} />)}
@@ -307,6 +310,20 @@ function Review({ capture, result }: { capture: Capture; result: EngineResult })
         <span className="spacer" />
         <button className="btn primary" onClick={commit}>Enviar ao workspace</button>
       </div>
+    </div>
+  );
+}
+
+function InstallBanner() {
+  useCanInstall();
+  const [hidden, setHidden] = useState(() => localStorage.getItem('nexus.installBanner') === 'off');
+  if (hidden || isInstalled() || !canPromptInstall()) return null;
+  return (
+    <div className="section row" style={{ padding: '10px 14px', flexWrap: 'nowrap' }}>
+      <span className="dot blue" />
+      <span style={{ flex: 1, fontSize: 13 }}>Instale o NEXUS como app: tela cheia, ícone próprio, sem navegador.</span>
+      <button className="btn sm primary" onClick={promptInstall}>Instalar</button>
+      <button className="btn sm ghost" aria-label="Dispensar" onClick={() => { localStorage.setItem('nexus.installBanner', 'off'); setHidden(true); }}>×</button>
     </div>
   );
 }

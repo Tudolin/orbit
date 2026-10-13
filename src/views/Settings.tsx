@@ -4,6 +4,8 @@ import { DEFAULT_MODEL, EFFORTS, MODELS } from '../config';
 import { recorderSupported, speechSupported } from '../media';
 import { Section } from '../components/ui';
 import { SyncPanel } from './SyncPanel';
+import { InstallPanel } from './InstallPanel';
+import { applyVault, publishSettings } from '../vault';
 import { SecurityPanel } from './SecurityPanel';
 
 export function Settings() {
@@ -19,6 +21,7 @@ export function Settings() {
 
   useEffect(() => {
     (async () => {
+      await applyVault();
       setKey(await getSetting('anthropicKey'));
       setOpenai(await getSetting('openaiKey'));
       setModel((await getSetting('model')) || DEFAULT_MODEL);
@@ -35,7 +38,8 @@ export function Settings() {
       setSetting('effort', effort),
       setSetting('autoProcess', auto),
     ]);
-    setSaved('Salvo ✓');
+    const synced = await publishSettings();
+    setSaved(synced ? 'Salvo e sincronizado (cifrado) ✓' : 'Salvo neste aparelho ✓');
     setTimeout(() => setSaved(''), 2000);
   };
 
@@ -60,6 +64,8 @@ export function Settings() {
 
   return (
     <div className="stack" style={{ gap: 16 }}>
+      <InstallPanel />
+
       <Section title="🤖 Engine — Anthropic API" dot="blue">
         <div className="stack">
           <div className="field">
@@ -70,7 +76,7 @@ export function Settings() {
             </div>
           </div>
           <div className="notice">
-            A chave fica só neste dispositivo (IndexedDB) e é enviada direto para api.anthropic.com. Qualquer pessoa com acesso a este navegador pode lê-la: use uma chave dedicada com limite de gasto no Console da Anthropic.
+            A chave é enviada direto para api.anthropic.com. Com a sincronização ligada, ela vai para os seus outros aparelhos cifrada com a senha da sua conta — a nuvem só guarda texto cifrado. Use uma chave dedicada com limite de gasto no Console da Anthropic.
           </div>
           <div className="field">
             <label className="label">Modelo</label>

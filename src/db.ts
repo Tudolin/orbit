@@ -74,6 +74,21 @@ export interface Setting {
   value: string;
 }
 
+/** Configurações sensíveis cifradas (AES-GCM) — sincronizadas, mas ilegíveis fora dos seus aparelhos. */
+export interface VaultRecord {
+  id: string;
+  iv: string; // base64
+  data: string; // base64 do JSON cifrado
+  updatedAt?: number;
+}
+
+/** Chave de cifragem do cofre, não exportável e nunca sincronizada. */
+export interface KeyRecord {
+  id: string;
+  userId: string;
+  key: CryptoKey;
+}
+
 export const db = new Dexie('nexus') as Dexie & {
   workspaces: EntityTable<Workspace, 'id'>;
   captures: EntityTable<Capture, 'id'>;
@@ -81,6 +96,8 @@ export const db = new Dexie('nexus') as Dexie & {
   tasks: EntityTable<Task, 'id'>;
   notes: EntityTable<Note, 'id'>;
   settings: EntityTable<Setting, 'key'>;
+  vault: EntityTable<VaultRecord, 'id'>;
+  keystore: EntityTable<KeyRecord, 'id'>;
 };
 
 db.version(1).stores({
@@ -110,6 +127,12 @@ db.version(2)
     }
   });
 
+// v3: cofre de configurações sincronizado + chave local.
+db.version(3).stores({
+  vault: 'id, updatedAt',
+  keystore: 'id',
+});
+
 // IDs fixos: dois aparelhos novos não duplicam os workspaces padrão ao sincronizar.
 // updatedAt = 1 faz qualquer versão já existente na nuvem prevalecer sobre a semente.
 db.on('populate', (tx) => {
@@ -127,7 +150,7 @@ db.on('populate', (tx) => {
 
 // ---------- Rastreamento de mudanças para a sincronização ----------
 
-export const SYNC_TABLES = ['workspaces', 'captures', 'events', 'tasks', 'notes'] as const;
+export const SYNC_TABLES = ['workspaces', 'captures', 'events', 'tasks', 'notes', 'vault'] as const;
 export type SyncTable = (typeof SYNC_TABLES)[number];
 
 const SYNC_FLAG = '__nexusSync';

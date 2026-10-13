@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { getSetting, setSetting } from '../db';
 import { getStatus, subscribeStatus } from '../syncStatus';
 import { Section } from '../components/ui';
+import { applyVault, hasVaultKey, publishSettings, watchVault, type VaultState } from '../vault';
 
 // O SDK do Supabase só é baixado quando a sincronização é usada.
 const loadSync = () => import('../sync');
@@ -30,7 +31,9 @@ export function SyncPanel() {
   const [fromEnv, setFromEnv] = useState(true);
   const [url, setUrl] = useState('');
   const [anon, setAnon] = useState('');
-  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
+  const [vault, setVault] = useState<VaultState | 'no-key' | null>(null);
+  const [vaultPass, setVaultPass] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,7 +45,16 @@ export function SyncPanel() {
     setFromEnv(cfg.fromEnv);
     setUrl(cfg.fromEnv ? '' : cfg.url);
     setAnon(cfg.fromEnv ? '' : cfg.anonKey);
-    setUser(await s.currentUser());
+    const u = await s.currentUser();
+    setUser(u);
+    if (u) setVault((await hasVaultKey(u.id)) ? await applyVault() : 'no-key');
+  };
+
+  /** Depois do login: traz o cofre da nuvem ou, se ainda não existir, publica as chaves deste aparelho. */
+  const settleVault = async () => {
+    const s = await loadSync();
+    await s.syncNow();
+    if ((await applyVault()) === 'no-record' && (await publishSettings())) await s.syncNow();
   };
   useEffect(() => {
     refresh();
@@ -108,7 +120,7 @@ export function SyncPanel() {
               <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
             <div className="row">
-              <button className="btn primary" disabled={busy || !email || password.length < 6} onClick={() => run(async () => (await loadSync()).signIn(email, password))}>
+              <button className="btn primary" disabled={busy || !email || password.length < 6} onClick={() => run(async () => { await (await loadSync()).signIn(email, password); await settleVault(); })}>
                 Entrar
               </button>
               <button
@@ -117,6 +129,7 @@ export function SyncPanel() {
                 onClick={() =>
                   run(async () => {
                     const active = await (await loadSync()).signUp(email, password);
+                    if (active) await settleVault();
                     setMsg(active ? 'Conta criada ✓' : 'Conta criada. Confirme pelo link enviado ao seu e-mail e depois toque em Entrar.');
                   })
                 }
@@ -131,6 +144,30 @@ export function SyncPanel() {
         {user && (
           <>
             <div className="hint">Conectado como <b style={{ color: 'var(--text)' }}>{user.email}</b></div>
+            {vault === 'applied' && <div className="hint">🔐 Chaves de API sincronizadas com criptografia de ponta a ponta.</div>}
+            {vault === 'wrong-key' && <div className="notice">As chaves na nuvem foram salvas com outra senha. Informe-as de novo em Engine e toque em Salvar para regravar.</div>}
+            {vault === 'no-key' && (
+              <div className="stack">
+                <div className="notice">Digite a senha da conta uma vez para liberar as chaves de API sincronizadas neste aparelho.</div>
+                <div className="row" style={{ flexWrap: 'nowrap' }}>
+                  <input className="input" type="password" autoComplete="current-password" placeholder="Senha da conta" value={vaultPass} onChange={(e) => setVaultPass(e.target.value)} />
+                  <button
+                    className="btn primary"
+                    disabled={busy || !vaultPass}
+                    onClick={() =>
+                      run(async () => {
+                        await (await loadSync()).unlockVault(vaultPass);
+                        setVaultPass('');
+                        await settleVault();
+                        setMsg('Chaves liberadas ✓ — reabra Config para vê-las.');
+                      })
+                    }
+                  >
+                    Liberar
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="row">
               <button className="btn" disabled={busy} onClick={() => run(async () => (await loadSync()).syncNow())}>Sincronizar agora</button>
               <button className="btn ghost" disabled={busy} onClick={() => run(async () => (await loadSync()).signOut())}>Sair</button>
@@ -147,5 +184,6 @@ export function SyncPanel() {
 export async function bootSync() {
   const envReady = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
   if (!envReady && !(await getSetting('supabaseUrl'))) return;
+  watchVault();
   (await loadSync()).start();
 }
