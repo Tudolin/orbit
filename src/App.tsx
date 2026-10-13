@@ -7,6 +7,7 @@ import { Today, Week } from './views/Dashboard';
 import { Workspaces } from './views/Workspaces';
 import { Search } from './views/Search';
 import { Settings } from './views/Settings';
+import { requestLock } from './views/LockScreen';
 import { bootSync, statusLabel, useSyncStatus } from './views/SyncPanel';
 
 type View = 'inbox' | 'hoje' | 'semana' | 'areas' | 'busca' | 'config';
@@ -66,6 +67,9 @@ export function App() {
               <span className={`dot ${syncInfo.dot}`} />
             </button>
           )}
+          <button className="sync-dot" title="Bloquear" aria-label="Bloquear app" onClick={requestLock}>
+            <svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="6" width="10" height="7" /><path d="M3 6V4a3 3 0 0 1 6 0v2" /></svg>
+          </button>
         </div>
       </header>
       <nav className="nav" aria-label="Principal">

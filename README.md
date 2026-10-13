@@ -62,6 +62,17 @@ Cada aparelho guarda tudo no **IndexedDB** (Dexie), então o app abre e funciona
 
 O **Exportar/Importar backup** (JSON) continua disponível como cópia extra.
 
+## Segurança
+
+- **Bloqueio do app**: no primeiro acesso, cada aparelho cria um **PIN** de 4 a 8 dígitos. Nada do app aparece antes do desbloqueio.
+- **Digital / biometria** (WebAuthn, autenticador da plataforma): leitor de digital do Samsung e de outros Androids, Face ID / Touch ID e Windows Hello. A assinatura é verificada no próprio app contra a chave pública cadastrada.
+- **Bloqueio automático** ao sair do app ou após 1, 5 ou 15 minutos em segundo plano, além do botão 🔒 na barra superior.
+- **PIN** guardado só como hash PBKDF2-SHA256 com salt. Depois de 5 erros, há uma espera obrigatória que dobra a cada nova tentativa errada.
+- **Esqueci o PIN**: apaga os dados e a sessão da nuvem deste aparelho. Para recuperar, crie um PIN novo e entre na conta de sincronização com a senha.
+- **Cabeçalhos HTTP** (vercel.json): HSTS, `X-Frame-Options: DENY`, `nosniff` e `Permissions-Policy`.
+
+O bloqueio protege o acesso pelo aparelho. Os dados na nuvem são protegidos pela conta Supabase (RLS).
+
 ## Configuração
 
 - **ANTHROPIC_API_KEY**: inserida em Config e enviada direto do navegador para `api.anthropic.com`. Ela fica guardada no IndexedDB deste dispositivo. Use uma chave dedicada com limite de gasto.
@@ -78,11 +89,12 @@ src/
   config.ts          modelos e níveis de esforço
   pipeline.ts        fila Inbox → engine → revisão (carrega o SDK sob demanda)
   media.ts           redimensionamento de imagem, gravação, Web Speech, Whisper
+  lock.ts            PIN (PBKDF2), biometria WebAuthn, redefinição do aparelho
   sync.ts            sincronização Supabase (push/pull, realtime, auth)
   syncStatus.ts      estado da sincronização para a interface
   dates.ts           utilitários de data (semana ISO, fuso local)
   components/ui.tsx  blocos visuais e editores
-  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel
+  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel, SecurityPanel, LockScreen
 supabase/schema.sql  tabela, RLS, trigger last-write-wins e realtime
 ```
 

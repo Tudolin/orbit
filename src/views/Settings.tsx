@@ -4,6 +4,7 @@ import { DEFAULT_MODEL, EFFORTS, MODELS } from '../config';
 import { recorderSupported, speechSupported } from '../media';
 import { Section } from '../components/ui';
 import { SyncPanel } from './SyncPanel';
+import { SecurityPanel } from './SecurityPanel';
 
 export function Settings() {
   const [key, setKey] = useState('');
@@ -111,6 +112,8 @@ export function Settings() {
         <span className="spacer" />
         <button className="btn primary" onClick={save}>Salvar configurações</button>
       </div>
+
+      <SecurityPanel />
 
       <SyncPanel />
 

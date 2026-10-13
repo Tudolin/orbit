@@ -170,3 +170,18 @@ ul.plain li::before { content: '— '; color: var(--muted); }
 
 .sync-dot { display: grid; place-items: center; width: 28px; height: 28px; background: transparent; border: 1px solid var(--line-strong); cursor: pointer; }
 .sync-dot .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* ---------- Lock screen ---------- */
+.lock { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); overflow-y: auto; }
+.lock-inner { width: 100%; max-width: 340px; }
+.lock-mark { grid-template-columns: 16px 16px; gap: 4px; }
+.lock-mark i { width: 16px !important; height: 16px !important; }
+.pin-dots { display: flex; justify-content: center; gap: 14px; min-height: 16px; }
+.pin-dots span { width: 14px; height: 14px; border: 1.5px solid var(--line-strong); }
+.pin-dots span.on { background: var(--text); border-color: var(--text); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.keypad > * { background: var(--bg); min-height: 64px; border: 0; font-size: 22px; font-family: var(--mono); cursor: pointer; display: grid; place-items: center; }
+.keypad button:active { background: var(--surface-2); }
+.keypad button:disabled { opacity: 0.35; cursor: default; }
+.keypad .ok { grid-column: 1 / -1; min-height: 52px; font-family: var(--font); font-size: 15px; font-weight: 700; background: var(--text); color: var(--bg); }
+.keypad .bio { color: var(--blue); font-size: 26px; }
