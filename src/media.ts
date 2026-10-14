@@ -40,6 +40,25 @@ function speechCtor(): (new () => SpeechRecognitionLike) | null {
   return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as (new () => SpeechRecognitionLike) | null;
 }
 
+/**
+ * Junta os resultados de uma sessão. Desktop: cada resultado é um trecho novo.
+ * Android: cada resultado repete o anterior e acrescenta palavras ("a", "a b", "a b c").
+ * Um resultado que começa com o anterior o substitui; um contido no anterior é ignorado.
+ */
+export function joinResults(results: ArrayLike<{ 0: { transcript: string } }>): string {
+  const parts: string[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const t = results[i][0].transcript.trim();
+    if (!t) continue;
+    const last = parts[parts.length - 1];
+    const norm = (s: string) => s.toLowerCase();
+    if (last !== undefined && norm(t).startsWith(norm(last))) parts[parts.length - 1] = t;
+    else if (last !== undefined && norm(last).startsWith(norm(t))) continue;
+    else parts.push(t);
+  }
+  return parts.join(' ');
+}
+
 export const speechSupported = () => speechCtor() !== null;
 export const recorderSupported = () => typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 
@@ -63,28 +82,29 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
     recorder.start();
   }
 
-  let finalText = '';
-  let interim = '';
+  // Texto das sessões de reconhecimento já encerradas + texto da sessão atual.
+  let committed = '';
+  let current = '';
   let recognition: SpeechRecognitionLike | null = null;
   let stopping = false;
   const Ctor = opts.live ? speechCtor() : null;
   if (Ctor) {
     recognition = new Ctor();
     recognition.lang = 'pt-BR';
-    recognition.continuous = true;
+    // No Android o modo contínuo devolve resultados cumulativos e duplica o texto;
+    // lá cada sessão captura uma fala e reiniciamos ao final.
+    recognition.continuous = !/android/i.test(navigator.userAgent);
     recognition.interimResults = true;
     recognition.onresult = (ev) => {
-      interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        if (r.isFinal) finalText += r[0].transcript + ' ';
-        else interim += r[0].transcript;
-      }
-      opts.onLive((finalText + interim).trim());
+      // Recalcula a sessão inteira a cada evento (não confia em resultIndex, que varia entre navegadores).
+      current = joinResults(ev.results);
+      opts.onLive(`${committed} ${current}`.trim());
     };
     recognition.onerror = () => {};
-    // Safari/Chrome mobile encerram sozinhos após pausas: reinicia até o usuário parar.
+    // O reconhecimento encerra sozinho após pausas: guarda o texto da sessão e reinicia até o usuário parar.
     recognition.onend = () => {
+      committed = `${committed} ${current}`.trim();
+      current = '';
       if (!stopping) {
         try {
           recognition!.start();
@@ -109,7 +129,7 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
         blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         stream?.getTracks().forEach((t) => t.stop());
       }
-      return { blob, liveText: (finalText + interim).trim() };
+      return { blob, liveText: `${committed} ${current}`.trim() };
     },
   };
 }
