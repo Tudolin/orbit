@@ -49,6 +49,7 @@ function Composer({ shared }: { shared: string }) {
   const [rec, setRec] = useState<Recording | null>(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [pendingAudio, setPendingAudio] = useState<Blob | null>(null);
   const baseText = useRef('');
 
   useEffect(() => {
@@ -81,25 +82,30 @@ function Composer({ shared }: { shared: string }) {
     return () => window.removeEventListener('paste', onPaste);
   }, []);
 
+  const transcribe = async (blob: Blob) => {
+    const whisperKey = await getSetting('openaiKey');
+    setBusy('Transcrevendo com Whisper…');
+    setErr('');
+    try {
+      const t = await whisperTranscribe(blob, whisperKey);
+      setTexto((baseText.current + ' ' + t).trim());
+      setPendingAudio(null);
+    } catch (e) {
+      // O áudio fica guardado para tentar de novo (ex.: depois de corrigir a chave em Config).
+      setPendingAudio(blob);
+      setErr((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+
   const toggleMic = async () => {
     setErr('');
     if (rec) {
       setRec(null);
       const { blob, liveText } = await rec.stop();
-      const whisperKey = await getSetting('openaiKey');
-      if (blob && whisperKey) {
-        setBusy('Transcrevendo com Whisper…');
-        try {
-          const t = await whisperTranscribe(blob, whisperKey);
-          setTexto((baseText.current + ' ' + t).trim());
-        } catch (e) {
-          setErr((e as Error).message + (liveText ? ' — mantida a transcrição do navegador.' : ''));
-        } finally {
-          setBusy('');
-        }
-      } else if (!liveText && !speechSupported()) {
-        setErr('Este navegador não transcreve áudio. Configure uma chave Whisper em Config.');
-      }
+      if (blob && (await getSetting('openaiKey'))) await transcribe(blob);
+      else if (!liveText) setErr('Nada foi transcrito. Fale mais perto do microfone ou use o ditado do teclado.');
       return;
     }
     const whisperKey = await getSetting('openaiKey');
@@ -114,7 +120,8 @@ function Composer({ shared }: { shared: string }) {
       setRec(
         await startRecording({
           record: useWhisper,
-          live: speechSupported(),
+          // No Android, gravar e transcrever ao vivo ao mesmo tempo disputa o microfone.
+          live: !useWhisper && speechSupported(),
           onLive: (t) => setTexto((baseText.current + ' ' + t).trim()),
         }),
       );
@@ -172,6 +179,13 @@ function Composer({ shared }: { shared: string }) {
         </div>
         {busy && <div className="hint">{busy}</div>}
         {err && <div className="error">{err}</div>}
+        {pendingAudio && !busy && (
+          <div className="row">
+            <span className="hint" style={{ flex: 1 }}>🎙️ Áudio guardado ({Math.round(pendingAudio.size / 1024)} KB).</span>
+            <button className="btn sm" onClick={() => transcribe(pendingAudio)}>Tentar de novo</button>
+            <button className="btn sm ghost" onClick={() => { setPendingAudio(null); setErr(''); }}>Descartar</button>
+          </div>
+        )}
         <button className="btn primary block" disabled={(!texto.trim() && !imagens.length) || !!rec || !!busy} onClick={submit}>
           Capturar e processar
         </button>

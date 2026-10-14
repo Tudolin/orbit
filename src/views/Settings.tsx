@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { db, exportAll, getSetting, importAll, setSetting } from '../db';
 import { DEFAULT_MODEL, EFFORTS, MODELS } from '../config';
-import { recorderSupported, speechSupported } from '../media';
+import { openaiKeyProblem, recorderSupported, speechSupported, testOpenAIKey } from '../media';
 import { Section } from '../components/ui';
 import { SyncPanel } from './SyncPanel';
 import { InstallPanel } from './InstallPanel';
@@ -18,6 +18,7 @@ export function Settings() {
   const [show, setShow] = useState(false);
   const [msg, setMsg] = useState('');
   const [wipe, setWipe] = useState(false);
+  const [oaTest, setOaTest] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -108,7 +109,27 @@ export function Settings() {
           <div className="field">
             <label className="label">OpenAI API key (opcional — Whisper)</label>
             <input className="input mono" type="password" autoComplete="off" placeholder="sk-…" value={openai} onChange={(e) => setOpenai(e.target.value)} />
-            <span className="hint" style={{ marginTop: 6 }}>Com a chave, o áudio gravado é transcrito pelo Whisper (mais preciso). Sem ela, usa a transcrição ao vivo do navegador.</span>
+            <span className="hint" style={{ marginTop: 6 }}>Com a chave, o áudio gravado é transcrito pelo Whisper (mais preciso). Sem ela (campo vazio), usa a transcrição ao vivo do navegador, que é grátis.</span>
+            {openaiKeyProblem(openai.trim()) && <div className="error" style={{ marginTop: 8 }}>{openaiKeyProblem(openai.trim())}</div>}
+            {openai.trim() && (
+              <div className="row" style={{ marginTop: 8 }}>
+                <button
+                  className="btn sm"
+                  onClick={async () => {
+                    setOaTest('Testando…');
+                    try {
+                      await testOpenAIKey(openai.trim());
+                      setOaTest('🟢 Chave da OpenAI funcionando.');
+                    } catch (e) {
+                      setOaTest(`🔴 ${(e as Error).message}`);
+                    }
+                  }}
+                >
+                  Testar chave
+                </button>
+                <span className="hint" style={{ flex: 1 }}>{oaTest}</span>
+              </div>
+            )}
           </div>
         </div>
       </Section>

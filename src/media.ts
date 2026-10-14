@@ -114,18 +114,49 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
   };
 }
 
+const WHISPER_BLOCKED =
+  'A OpenAI recusou a requisição ou a rede bloqueou. Confira em Config se a chave da OpenAI é válida (começa com "sk-", não "sk-ant-") e tem crédito, ou se uma VPN/bloqueador está barrando api.openai.com.';
+
+/** Valida a forma da chave antes de usar (erro comum: colar a chave da Anthropic no campo da OpenAI). */
+export function openaiKeyProblem(key: string): string | null {
+  if (!key) return null;
+  if (key.startsWith('sk-ant-')) return 'Essa é uma chave da Anthropic. O campo do Whisper precisa de uma chave da OpenAI (platform.openai.com).';
+  if (!key.startsWith('sk-')) return 'Chave da OpenAI inválida: ela começa com "sk-".';
+  return null;
+}
+
+/** Testa a chave da OpenAI. Erros de autenticação chegam ao navegador como falha de rede (sem CORS). */
+export async function testOpenAIKey(apiKey: string): Promise<void> {
+  const problem = openaiKeyProblem(apiKey);
+  if (problem) throw new Error(problem);
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${apiKey}` } });
+  } catch {
+    throw new Error(WHISPER_BLOCKED);
+  }
+  if (!res.ok) throw new Error(`OpenAI respondeu ${res.status}. Verifique a chave e o crédito.`);
+}
+
 /** Transcrição via OpenAI Whisper (opcional, requer chave própria). */
 export async function whisperTranscribe(blob: Blob, apiKey: string): Promise<string> {
+  const problem = openaiKeyProblem(apiKey);
+  if (problem) throw new Error(problem);
   const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
   const form = new FormData();
   form.append('file', blob, `captura.${ext}`);
   form.append('model', 'whisper-1');
   form.append('language', 'pt');
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-  });
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+  } catch {
+    throw new Error(WHISPER_BLOCKED);
+  }
   if (!res.ok) throw new Error(`Whisper falhou (${res.status}): ${(await res.text()).slice(0, 200)}`);
   return ((await res.json()) as { text: string }).text;
 }
