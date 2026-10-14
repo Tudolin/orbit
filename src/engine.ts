@@ -4,74 +4,90 @@ import { z } from 'zod';
 import type { CaptureImage } from './db';
 import type { Effort } from './config';
 
-export const SYSTEM_PROMPT = `Você é a engine de processamento de dados e extração estruturada do aplicativo 'NEXUS / Segundo Cérebro'. Sua função é receber capturas multimídia (fotos de quadros Jira, prints de calendários, conversas de Teams/e-mail, transcrições de áudio ou notas rápidas) e devolver um JSON estritamente formatado com as informações extraídas e categorizadas.
+export const SYSTEM_PROMPT = `Você processa capturas rápidas de um sistema de segundo cérebro (NEXUS). Recebe um conteúdo bruto (texto, transcrição de áudio ou imagem/print de Jira, Teams, Outlook, e-mail) e devolve somente o JSON do schema, sem texto antes ou depois.
 
-REGRAS DE PROCESSAMENTO:
-1. Extraia com precisão (OCR/Visão) dados de fotos e prints de telas de computadores.
-2. Identifique e isole:
-   - Título e contexto da tarefa ou evento.
-   - Prazos (due dates) e horários.
-   - Prioridade (Alta, Média, Baixa).
-   - Workspace de destino (identificado ou sugerido com base no contexto).
-   - Ponto de decisão/resumo do Segundo Cérebro para memória futura.
-3. Ignore vícios de linguagem em áudios e resuma os pontos com verbos no infinitivo.
+O bloco CONTEXTO da mensagem traz a data e hora da captura, a origem e os workspaces disponíveis com suas palavras-chave. Use exatamente esses nomes de workspace.
 
-FORMATO DE RESPOSTA OBRIGATÓRIO (JSON APENAS):
-{
-  "workspace_sugerido": "string",
-  "tags": ["string"],
-  "agenda_eventos": [
-    {
-      "titulo": "string",
-      "data_inicio": "ISO_STRING",
-      "data_fim": "ISO_STRING",
-      "origem": "outlook|teams|jira|foto|audio"
-    }
-  ],
-  "tarefas": [
-    {
-      "descricao": "string",
-      "prazo": "ISO_STRING ou null",
-      "prioridade": "alta|media|baixa",
-      "origem": "jira|teams|foto|audio"
-    }
-  ],
-  "segundo_cerebro_contexto": {
-    "resumo": "string",
-    "decisoes_tomadas": ["string"],
-    "participantes": ["string"]
-  }
-}`;
+### Regras de extração de tarefas
 
-// "texto" foi acrescentado às origens para notas digitadas, que não se encaixam nas demais.
+1. Cada ação distinta vira uma tarefa separada. Uma frase com várias frentes ("finalizar onboarding da Radix e da Cadastra") gera uma tarefa por frente.
+2. Cada tarefa pertence a exatamente um workspace, atribuído individualmente. Nunca copie para todas as tarefas o workspace da primeira menção.
+3. Para atribuir o workspace de uma tarefa, siga esta ordem:
+   a. menção explícita ao nome ou a uma palavra-chave do workspace dentro da própria tarefa;
+   b. contexto imediato da frase em que a tarefa aparece;
+   c. se ainda houver dúvida, use null e marque workspace_incerto: true. Não chute.
+4. Título da tarefa: verbo no infinitivo, curto, autoexplicativo fora do contexto da captura.
+5. Prioridade: alta | media | baixa. Se não for dita, use media e marque prioridade_inferida: true.
+6. Prazo, sempre relativo à data e hora da captura:
+   - "hoje" → mesmo dia, 18:00
+   - "amanhã" → dia seguinte, 18:00
+   - "essa semana" / "até o fim da semana" → sexta-feira da semana corrente, 18:00
+   - "semana que vem" → sexta-feira da semana seguinte, 18:00
+   - dia da semana citado ("quinta") → próxima ocorrência, 18:00
+   - data explícita → essa data, 18:00 se não houver horário
+   - nenhuma referência → null
+   Quando o prazo for interpretado a partir de uma expressão vaga, marque prazo_inferido: true.
+   Escreva prazos em ISO 8601 com o fuso informado no CONTEXTO.
+7. Recorrência: tarefa que se repete ("todo dia 9", "toda segunda", "diariamente") recebe recorrencia mensal | semanal | diaria e, como prazo, a PRÓXIMA ocorrência. Caso contrário, recorrencia: "nenhuma".
+
+### Eventos de agenda
+
+8. Reuniões e compromissos com data/hora (prints de Outlook/Teams, convites) vão em agenda_eventos, com o mesmo critério de workspace das tarefas (regras 2 e 3). data_fim = null se não houver horário de término.
+
+### Regras da nota
+
+9. workspace_principal:
+   - se todas as tarefas com workspace definido forem do mesmo workspace, use esse nome;
+   - se houver dois ou mais workspaces diferentes, use "multi";
+   - se não houver tarefas, atribua pelo assunto geral da captura, ou null se não for possível.
+10. titulo: até 80 caracteres, fiel ao que foi dito, com ortografia corrigida.
+11. tags: uma tag por workspace envolvido (#radix, #cadastra…), mais #origem/<origem>, #prio/<maior prioridade entre as tarefas> e #status/pendente.
+12. resumo: de 1 a 3 frases em português correto. Registre explicitamente qualquer inferência feita (prazo, prioridade, workspace incerto).
+13. decisoes_tomadas e participantes: decisões e pessoas citadas (listas vazias se não houver).
+14. sugerir_divisao: true somente se workspace_principal for "multi"; caso contrário, false.
+15. Em áudios, ignore vícios de linguagem e repetições da transcrição.
+
+### Exemplo
+
+Captura de quarta, 14/10/2026, 11:58 (-03:00), origem audio: "finalizar onboarding radix e cadastra essa semana"
+
+{"titulo":"Finalizar onboarding da Radix e da Cadastra essa semana","workspace_principal":"multi","tags":["#radix","#cadastra","#origem/audio","#prio/media","#status/pendente"],"resumo":"Finalizar os onboardings da Radix e da Cadastra até sexta-feira, 16/10/2026, às 18:00 (prazo interpretado a partir de 'essa semana'). Prioridade não informada, assumida como média.","decisoes_tomadas":[],"participantes":[],"sugerir_divisao":true,"agenda_eventos":[],"tarefas":[{"titulo":"Finalizar onboarding da Radix","workspace":"Radix","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma"},{"titulo":"Finalizar onboarding da Cadastra","workspace":"Cadastra","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma"}]}`;
+
 const EngineSchema = z.object({
-  workspace_sugerido: z.string(),
+  titulo: z.string(),
+  workspace_principal: z.string().nullable(),
   tags: z.array(z.string()),
+  resumo: z.string(),
+  decisoes_tomadas: z.array(z.string()),
+  participantes: z.array(z.string()),
+  sugerir_divisao: z.boolean(),
+  tarefas: z.array(
+    z.object({
+      titulo: z.string(),
+      workspace: z.string().nullable(),
+      workspace_incerto: z.boolean(),
+      prioridade: z.enum(['alta', 'media', 'baixa']),
+      prioridade_inferida: z.boolean(),
+      prazo: z.string().nullable(),
+      prazo_inferido: z.boolean(),
+      recorrencia: z.enum(['nenhuma', 'diaria', 'semanal', 'mensal']),
+    }),
+  ),
   agenda_eventos: z.array(
     z.object({
       titulo: z.string(),
       data_inicio: z.string(),
       data_fim: z.string().nullable(),
-      origem: z.enum(['outlook', 'teams', 'jira', 'foto', 'audio', 'texto']),
+      workspace: z.string().nullable(),
+      workspace_incerto: z.boolean(),
     }),
   ),
-  tarefas: z.array(
-    z.object({
-      descricao: z.string(),
-      prazo: z.string().nullable(),
-      prioridade: z.enum(['alta', 'media', 'baixa']),
-      origem: z.enum(['jira', 'teams', 'foto', 'audio', 'texto']),
-      recorrencia: z.enum(['nenhuma', 'diaria', 'semanal', 'mensal']),
-    }),
-  ),
-  segundo_cerebro_contexto: z.object({
-    resumo: z.string(),
-    decisoes_tomadas: z.array(z.string()),
-    participantes: z.array(z.string()),
-  }),
 });
 
 export type EngineResult = z.infer<typeof EngineSchema>;
+
+export class InvalidOutputError extends Error {}
+export type Origem = 'audio' | 'texto' | 'imagem';
 
 export interface EngineInput {
   apiKey: string;
@@ -79,27 +95,32 @@ export interface EngineInput {
   effort: Effort;
   texto: string;
   imagens: CaptureImage[];
-  viaAudio: boolean;
-  workspaces: string[];
+  origem: Origem;
+  /** Momento da captura (não do processamento): "amanhã" é relativo a quando você falou. */
+  capturadaEm: number;
+  /** "Nome: palavra1, palavra2" por workspace. */
+  workspaces: { nome: string; palavrasChave: string[] }[];
   signal?: AbortSignal;
 }
 
+function isoWithOffset(ms: number): string {
+  const d = new Date(ms);
+  const off = -d.getTimezoneOffset();
+  const p = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, '0');
+  const local = new Date(ms + off * 60_000).toISOString().slice(0, 19);
+  return `${local}${off >= 0 ? '+' : '-'}${p(off / 60)}:${p(off % 60)}`;
+}
+
 function contextBlock(input: EngineInput): string {
-  const now = new Date();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const off = -now.getTimezoneOffset();
-  const sign = off >= 0 ? '+' : '-';
-  const offset = `${sign}${String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')}:${String(Math.abs(off) % 60).padStart(2, '0')}`;
-  const hoje = now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const d = new Date(input.capturadaEm);
+  const dia = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+  const ws = input.workspaces.map((w) => `- ${w.nome}${w.palavrasChave.length ? `: ${w.palavrasChave.join(', ')}` : ''}`).join('\n');
   return [
-    `CONTEXTO DO DISPOSITIVO:`,
-    `- Agora: ${hoje}, ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} (fuso ${tz}, UTC${offset}).`,
-    `- Resolva datas relativas ("amanhã", "sexta") a partir de hoje e escreva todas as datas ISO 8601 com o offset ${offset}.`,
-    `- Prazo sem horário: use 18:00 do dia. Evento sem fim explícito: data_fim = null.`,
-    `- Tarefa que se repete ("todo dia 9", "toda segunda", "diariamente"): preencha recorrencia (mensal/semanal/diaria) e use como prazo a PRÓXIMA ocorrência. Senão, recorrencia = "nenhuma".`,
-    `- Workspaces existentes: ${input.workspaces.map((w) => `"${w}"`).join(', ') || '(nenhum)'}. Em workspace_sugerido, use exatamente um desses nomes quando o contexto permitir; senão sugira um nome curto novo.`,
-    `- Tags no padrão #workspace, #origem/x, #prio/x, #status/x (sem espaços).`,
-    `- Origem da captura: ${input.imagens.length ? 'imagem/print' : input.viaAudio ? 'transcrição de áudio (use origem "audio")' : 'texto digitado (use origem "texto" se nenhuma outra se aplicar)'}.`,
+    'CONTEXTO',
+    `- Data e hora da captura: ${isoWithOffset(input.capturadaEm)} (${dia}; fuso ${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
+    `- Origem: ${input.origem}`,
+    '- Workspaces disponíveis (nome: palavras-chave):',
+    ws || '(nenhum)',
   ].join('\n');
 }
 
@@ -116,7 +137,7 @@ export async function processCapture(input: EngineInput): Promise<EngineResult> 
     ),
     {
       type: 'text',
-      text: `${contextBlock(input)}\n\nCAPTURA:\n${input.texto.trim() || '(somente imagem — extraia tudo da imagem)'}`,
+      text: `${contextBlock(input)}\n\nCONTEÚDO:\n${input.texto.trim() || '(somente imagem — extraia tudo da imagem)'}`,
     },
   ];
 
@@ -138,7 +159,7 @@ export async function processCapture(input: EngineInput): Promise<EngineResult> 
   if (response.stop_reason === 'max_tokens') {
     throw new Error('Resposta cortada por limite de tokens. Divida a captura em partes menores.');
   }
-  if (!response.parsed_output) throw new Error('A engine não devolveu um JSON válido.');
+  if (!response.parsed_output) throw new InvalidOutputError('A engine não devolveu um JSON válido.');
   return response.parsed_output;
 }
 

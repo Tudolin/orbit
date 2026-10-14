@@ -59,7 +59,12 @@ Câmera, microfone e service worker exigem HTTPS (a Vercel já fornece).
 
 1. **Inbox / Quick Capture**: texto, links, fotos (câmera ou galeria), prints colados com Ctrl+V e áudio. No Android, o NEXUS aparece no menu "Compartilhar" para textos e links.
 2. **Engine Claude**: cada captura vai para a Messages API com o system prompt do NEXUS e **structured outputs**, então a resposta sempre segue o schema JSON. O app também envia o contexto do dispositivo (data, fuso, workspaces existentes) para resolver "amanhã às 9h" e sugerir o workspace certo.
-3. **Revisão (Modelo 1)**: você confere o workspace sugerido (ou cria um novo), desmarca o que não quer e envia. Eventos, tarefas e a nota de contexto vão para o workspace.
+3. **Triagem**: cada tarefa e evento recebe **o próprio workspace**, escolhido pelo nome ou pelas **palavras-chave** do workspace (Áreas → Editar). O app valida os nomes devolvidos pela IA (nome desconhecido vira "sem workspace") e recalcula o workspace principal no código: um só workspace, ou `multi`.
+   - **≈ prazo / ≈ prioridade / ≈ workspace**: o valor foi inferido pela IA. Toque para confirmar ou edite o campo.
+   - **Itens sem workspace** ficam em vermelho e bloqueiam o **Aprovar**.
+   - **Dividir por workspace** (só em capturas `multi`): cria uma nota por workspace ("<título> — <workspace>"), todas apontando para a mesma captura, e arquiva a original como `#status/dividida`.
+   - Se a IA devolver JSON inválido, o app reprocessa uma vez. Na segunda falha, a captura vira uma nota simples sem tarefas.
+   - Prazos são resolvidos a partir do **momento da captura** ("essa semana" → sexta, 18:00), mesmo que você processe depois.
 4. **Visões**: Hoje (timeline + prioridades + entregas), Semana (matriz workspace × dia com volume por cor), Workspaces (Agenda, Kanban, Cérebro) e Busca (palavras-chave + `#tags` + filtro por workspace).
 
 ## Dados e sincronização
@@ -100,7 +105,8 @@ src/
   db.ts              schema IndexedDB, distribuição de capturas, backup
   engine.ts          chamada Claude (system prompt, schema zod, erros)
   config.ts          modelos e níveis de esforço
-  pipeline.ts        fila Inbox → engine → revisão (carrega o SDK sob demanda)
+  pipeline.ts        fila Inbox → engine → revisão (timeout, cancelamento, retry de JSON inválido)
+  triage.ts          rascunho da triagem, validação de workspaces, principal/multi, divisão
   media.ts           redimensionamento de imagem, gravação, Web Speech, Whisper
   lock.ts            PIN (PBKDF2), biometria WebAuthn, redefinição do aparelho
   sync.ts            sincronização Supabase (push/pull, realtime, auth)
@@ -109,11 +115,10 @@ src/
   syncStatus.ts      estado da sincronização para a interface
   dates.ts           utilitários de data (semana ISO, fuso local)
   components/ui.tsx  blocos visuais e editores
-  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, SyncPanel, SecurityPanel, LockScreen, InstallPanel
+  views/             Inbox, Dashboard (Hoje/Semana), Workspaces, Search, Settings, Triage, SyncPanel, SecurityPanel, LockScreen, InstallPanel
 supabase/schema.sql  tabela, RLS, trigger last-write-wins e realtime
 ```
 
-## Desvios do schema original
+## Schema da engine
 
-- `origem` aceita também `"texto"` para notas digitadas.
-- `data_fim` pode ser `null` quando o evento não tem fim explícito.
+O prompt da engine segue a especificação "Prompt de processamento de captura" (tarefas com workspace individual, `workspace_principal`, flags `*_inferido`/`*_incerto`, `sugerir_divisao`). Campos a mais: `agenda_eventos` (com workspace por evento), `recorrencia`, `decisoes_tomadas` e `participantes`.

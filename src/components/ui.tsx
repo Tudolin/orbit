@@ -12,6 +12,12 @@ export function useWsName(): (id: string) => string {
   return (id) => ws.find((w) => w.id === id)?.nome ?? '—';
 }
 
+/** Nome(s) do workspace de uma nota (multi-workspace → "A + B"). */
+export function useNoteWsName(): (n: Note) => string {
+  const name = useWsName();
+  return (n) => (n.workspaceIds?.length ? n.workspaceIds.map(name).join(' + ') : name(n.workspaceId));
+}
+
 export function Section(props: { title: ReactNode; dot?: string; count?: number; children: ReactNode; flush?: boolean; action?: ReactNode }) {
   return (
     <section className="section">
@@ -108,7 +114,8 @@ export function NoteCard({ note, wsName, onEdit }: { note: Note; wsName?: string
     <div className="item" onClick={onEdit} style={{ cursor: onEdit ? 'pointer' : undefined }}>
       <span className="dot yellow" />
       <div className="item-main stack" style={{ gap: 8 }}>
-        <div className="item-title" style={{ fontWeight: 500 }}>{note.resumo || '(sem resumo)'}</div>
+        {note.titulo && <div className="item-title">{note.titulo}</div>}
+        <div style={{ fontWeight: note.titulo ? 400 : 500, color: note.titulo ? 'var(--muted)' : undefined }}>{note.resumo || '(sem resumo)'}</div>
         {note.decisoes.length > 0 && (
           <div>
             <div className="label" style={{ marginBottom: 4 }}>Decisões</div>
@@ -121,6 +128,7 @@ export function NoteCard({ note, wsName, onEdit }: { note: Note; wsName?: string
         )}
         <div className="item-meta">
           {wsName && <span className="chip ws">{wsName}</span>}
+          {note.arquivada && <span className="chip">ARQUIVADA · DIVIDIDA</span>}
           <span className="mono">{new Date(note.createdAt).toLocaleDateString('pt-BR')}</span>
           {note.participantes.length > 0 && <span>👤 {note.participantes.join(', ')}</span>}
           <Tags tags={note.tags} />

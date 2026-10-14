@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie';
-import type { EngineResult } from './engine';
+import type { Built, StoredResult } from './triage';
 
 export type Prioridade = 'alta' | 'media' | 'baixa';
 export type TaskStatus = 'pendente' | 'em-andamento' | 'concluido';
@@ -10,6 +10,8 @@ export interface Workspace {
   id: string;
   nome: string;
   ordem: number;
+  /** Palavras que identificam o workspace numa captura (ex.: cliente, produto, apelido). */
+  palavrasChave?: string[];
   createdAt: number;
   updatedAt?: number;
 }
@@ -26,7 +28,7 @@ export interface Capture {
   viaAudio: boolean;
   status: CaptureStatus;
   erro?: string;
-  resultado?: EngineResult;
+  resultado?: StoredResult;
   createdAt: number;
   updatedAt?: number;
 }
@@ -66,7 +68,12 @@ export interface Task {
 
 export interface Note {
   id: string;
+  /** '' quando a nota envolve vários workspaces (ver workspaceIds). */
   workspaceId: string;
+  workspaceIds?: string[];
+  titulo?: string;
+  /** Nota original de uma captura dividida por workspace (#status/dividida). */
+  arquivada?: boolean;
   resumo: string;
   decisoes: string[];
   participantes: string[];
@@ -290,54 +297,18 @@ export async function moveWorkspace(id: string, delta: -1 | 1): Promise<void> {
   });
 }
 
-/** Distribui o resultado de uma captura no workspace escolhido. */
-export async function commitCapture(capture: Capture, workspaceId: string, r: EngineResult): Promise<void> {
-  const now = Date.now();
+/** Grava os registros aprovados na triagem e marca a captura como triada. */
+export async function commitCapture(captureId: string, built: Built): Promise<void> {
   await db.transaction('rw', [db.events, db.tasks, db.notes, db.captures], async () => {
-    await db.events.bulkAdd(
-      r.agenda_eventos.map((e) => ({
-        id: uid(),
-        workspaceId,
-        titulo: e.titulo,
-        inicio: e.data_inicio,
-        fim: e.data_fim,
-        origem: e.origem,
-        tags: r.tags,
-        captureId: capture.id,
-        createdAt: now,
-      })),
-    );
-    await db.tasks.bulkAdd(
-      r.tarefas.map((t) => ({
-        id: uid(),
-        workspaceId,
-        descricao: t.descricao,
-        prazo: t.prazo,
-        prioridade: t.prioridade,
-        status: 'pendente' as const,
-        origem: t.origem,
-        recorrencia: t.recorrencia === 'nenhuma' || !t.prazo ? undefined : t.recorrencia,
-        tags: r.tags,
-        captureId: capture.id,
-        createdAt: now,
-      })),
-    );
-    const ctx = r.segundo_cerebro_contexto;
-    if (ctx.resumo.trim() || ctx.decisoes_tomadas.length) {
-      await db.notes.add({
-        id: uid(),
-        workspaceId,
-        resumo: ctx.resumo,
-        decisoes: ctx.decisoes_tomadas,
-        participantes: ctx.participantes,
-        tags: r.tags,
-        captureId: capture.id,
-        createdAt: now,
-      });
-    }
-    await db.captures.update(capture.id, { status: 'triado', resultado: r });
+    await db.events.bulkAdd(built.events);
+    await db.tasks.bulkAdd(built.tasks);
+    await db.notes.bulkAdd(built.notes);
+    await db.captures.update(captureId, { status: 'triado' });
   });
 }
+
+/** Notas visíveis num workspace (inclui notas multi-workspace, exclui as arquivadas). */
+export const noteInWorkspace = (n: Note, wsId: string) => !n.arquivada && (n.workspaceId === wsId || !!n.workspaceIds?.includes(wsId));
 
 export async function exportAll(): Promise<string> {
   const [workspaces, captures, events, tasks, notes] = await Promise.all([

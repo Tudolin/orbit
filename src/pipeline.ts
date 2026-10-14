@@ -1,5 +1,9 @@
 import { db, getSetting } from './db';
 import { DEFAULT_MODEL, type Effort } from './config';
+import { fallbackResult } from './triage';
+import type { Capture } from './db';
+
+export const captureOrigem = (c: Capture) => (c.imagens.length ? 'imagem' : c.viaAudio ? 'audio' : 'texto') as 'imagem' | 'audio' | 'texto';
 
 /** Capturas com requisição em andamento nesta aba (o que estiver "processando" fora daqui travou). */
 const inFlight = new Map<string, AbortController>();
@@ -34,17 +38,31 @@ export async function runCapture(id: string): Promise<void> {
     return;
   }
   try {
-    const workspaces = (await db.workspaces.orderBy('ordem').toArray()).map((w) => w.nome);
-    const resultado = await engine.processCapture({
+    const workspaces = (await db.workspaces.orderBy('ordem').toArray()).map((w) => ({ nome: w.nome, palavrasChave: w.palavrasChave ?? [] }));
+    const input = {
       apiKey,
       model: (await getSetting('model')) || DEFAULT_MODEL,
       effort: ((await getSetting('effort')) || 'medium') as Effort,
       texto: capture.texto,
       imagens: capture.imagens,
-      viaAudio: capture.viaAudio,
+      origem: captureOrigem(capture),
+      capturadaEm: capture.createdAt,
       workspaces,
       signal: ctrl.signal,
-    });
+    };
+    let resultado;
+    try {
+      resultado = await engine.processCapture(input);
+    } catch (e) {
+      // JSON inválido: reprocessa uma vez; se falhar de novo, vira nota simples sem tarefas.
+      if (!(e instanceof engine.InvalidOutputError)) throw e;
+      try {
+        resultado = await engine.processCapture(input);
+      } catch (e2) {
+        if (!(e2 instanceof engine.InvalidOutputError)) throw e2;
+        resultado = fallbackResult(capture.texto);
+      }
+    }
     await db.captures.update(id, { status: 'revisao', resultado });
   } catch (e) {
     const erro = ctrl.signal.aborted ? 'Cancelado. Toque em Tentar de novo quando quiser.' : engine.describeError(e);

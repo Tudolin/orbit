@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { commitCapture, db, getSetting, uid, type Capture, type CaptureImage } from '../db';
-import type { EngineResult } from '../engine';
+import { db, getSetting, uid, type Capture, type CaptureImage } from '../db';
+import { captureTitle } from '../triage';
+import { Review } from './Triage';
 import { imageSrc, imageToCapture, recorderSupported, speechSupported, startRecording, whisperTranscribe, type Recording } from '../media';
 import { appNeedsReload, cancelCapture, isInFlight, runCapture } from '../pipeline';
-import { fmtDateTime } from '../dates';
 import { canPromptInstall, isInstalled, promptInstall } from '../install';
 import { useCanInstall } from './InstallPanel';
-import { Empty, PRIO_LABEL, Section, Tags, useWorkspaces } from '../components/ui';
+import { Empty, Section } from '../components/ui';
 
 export function Inbox({ shared }: { shared: string }) {
   const captures = useLiveQuery(() => db.captures.orderBy('createdAt').reverse().toArray(), []) ?? [];
@@ -27,10 +27,9 @@ export function Inbox({ shared }: { shared: string }) {
             <div key={c.id} className="item">
               <span className="dot green" />
               <div className="item-main">
-                <div className="item-title" style={{ fontWeight: 500 }}>{c.resultado?.segundo_cerebro_contexto.resumo || c.texto || 'Imagem'}</div>
+                <div className="item-title" style={{ fontWeight: 500 }}>{captureTitle(c.resultado) || c.texto || 'Imagem'}</div>
                 <div className="item-meta">
                   <span className="mono">{new Date(c.createdAt).toLocaleString('pt-BR')}</span>
-                  <span className="chip ws">{c.resultado?.workspace_sugerido}</span>
                 </div>
               </div>
               <button className="btn ghost sm" onClick={() => db.captures.delete(c.id)}>Remover</button>
@@ -233,7 +232,7 @@ function CaptureCard({ capture }: { capture: Capture }) {
         </div>
       )}
       {capture.status === 'erro' && <div className="error" style={{ margin: '0 14px 12px' }}>{capture.erro}</div>}
-      {capture.status === 'revisao' && capture.resultado && <Review capture={capture} result={capture.resultado} />}
+      {capture.status === 'revisao' && capture.resultado && <Review capture={capture} />}
       {processing && (stuck || elapsed >= 20) && (
         <div className="row" style={{ padding: '0 14px 12px' }}>
           <span className="hint" style={{ flex: 1 }}>{stuck ? 'O processamento foi interrompido.' : 'Está demorando mais que o normal.'}</span>
@@ -252,103 +251,6 @@ function CaptureCard({ capture }: { capture: Capture }) {
           <button className="btn ghost sm" onClick={() => db.captures.delete(capture.id)}>Descartar</button>
         </div>
       )}
-    </div>
-  );
-}
-
-/** Modelo 1 — Processamento de Captura, com seleção do que entra no workspace. */
-function Review({ capture, result }: { capture: Capture; result: EngineResult }) {
-  const workspaces = useWorkspaces();
-  const match = workspaces.find((w) => w.nome.toLowerCase() === result.workspace_sugerido.toLowerCase());
-  const [wsId, setWsId] = useState<string>('');
-  const [skipEv, setSkipEv] = useState<Set<number>>(new Set());
-  const [skipTk, setSkipTk] = useState<Set<number>>(new Set());
-  const [skipNote, setSkipNote] = useState(false);
-  const NEW = '__new__';
-  const selected = wsId || match?.id || (result.workspace_sugerido ? NEW : workspaces[0]?.id) || '';
-
-  const toggle = (set: Set<number>, i: number, upd: (s: Set<number>) => void) => {
-    const n = new Set(set);
-    n.has(i) ? n.delete(i) : n.add(i);
-    upd(n);
-  };
-
-  const commit = async () => {
-    let target = selected;
-    if (target === NEW) {
-      target = uid();
-      await db.workspaces.add({ id: target, nome: result.workspace_sugerido, ordem: workspaces.length, createdAt: Date.now() });
-    }
-    const filtered: EngineResult = {
-      ...result,
-      agenda_eventos: result.agenda_eventos.filter((_, i) => !skipEv.has(i)),
-      tarefas: result.tarefas.filter((_, i) => !skipTk.has(i)),
-      segundo_cerebro_contexto: skipNote ? { resumo: '', decisoes_tomadas: [], participantes: [] } : result.segundo_cerebro_contexto,
-    };
-    await commitCapture(capture, target, filtered);
-  };
-
-  const ctx = result.segundo_cerebro_contexto;
-  return (
-    <div className="stack" style={{ padding: '0 14px 14px', gap: 14 }}>
-      <div className="stack" style={{ gap: 6 }}>
-        <div className="label">📌 Workspace</div>
-        <select className="select" value={selected} onChange={(e) => setWsId(e.target.value)}>
-          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.nome}</option>)}
-          {!match && result.workspace_sugerido && <option value={NEW}>+ Criar “{result.workspace_sugerido}”</option>}
-        </select>
-        <Tags tags={result.tags} />
-      </div>
-
-      {result.agenda_eventos.length > 0 && (
-        <div className="stack" style={{ gap: 6 }}>
-          <div className="label">📅 Agenda & Prazos</div>
-          {result.agenda_eventos.map((e, i) => (
-            <label key={i} className="row" style={{ flexWrap: 'nowrap', cursor: 'pointer', opacity: skipEv.has(i) ? 0.4 : 1 }}>
-              <input type="checkbox" checked={!skipEv.has(i)} onChange={() => toggle(skipEv, i, setSkipEv)} />
-              <span className="dot blue" />
-              <span className="mono" style={{ fontSize: 12, minWidth: 90 }}>{fmtDateTime(e.data_inicio)}</span>
-              <span>{e.titulo}</span>
-            </label>
-          ))}
-        </div>
-      )}
-
-      {result.tarefas.length > 0 && (
-        <div className="stack" style={{ gap: 6 }}>
-          <div className="label">✅ Tarefas / Action Items</div>
-          {result.tarefas.map((t, i) => (
-            <label key={i} className="row" style={{ flexWrap: 'nowrap', cursor: 'pointer', opacity: skipTk.has(i) ? 0.4 : 1 }}>
-              <input type="checkbox" checked={!skipTk.has(i)} onChange={() => toggle(skipTk, i, setSkipTk)} />
-              <span className={`dot ${t.prioridade === 'alta' ? 'red' : 'orange'}`} />
-              <span style={{ flex: 1 }}>{t.descricao}</span>
-              <span className="chip">{PRIO_LABEL[t.prioridade]}</span>
-              {t.recorrencia !== 'nenhuma' && <span className="chip blue">↻ {t.recorrencia}</span>}
-              <span className="mono" style={{ fontSize: 12 }}>{fmtDateTime(t.prazo)}</span>
-            </label>
-          ))}
-        </div>
-      )}
-
-      {(ctx.resumo || ctx.decisoes_tomadas.length > 0) && (
-        <div className="stack" style={{ gap: 6, opacity: skipNote ? 0.4 : 1 }}>
-          <label className="row label" style={{ cursor: 'pointer', marginBottom: 0 }}>
-            <input type="checkbox" checked={!skipNote} onChange={() => setSkipNote(!skipNote)} /> 🧠 Segundo Cérebro
-          </label>
-          <blockquote className="stack" style={{ gap: 6 }}>
-            <div>🟡 <b>Resumo:</b> {ctx.resumo}</div>
-            {ctx.decisoes_tomadas.length > 0 && <ul className="plain">{ctx.decisoes_tomadas.map((d, i) => <li key={i}>{d}</li>)}</ul>}
-            {ctx.participantes.length > 0 && <div>👤 <b>Participantes:</b> {ctx.participantes.join(', ')}</div>}
-          </blockquote>
-        </div>
-      )}
-
-      <div className="row">
-        <button className="btn ghost sm" onClick={() => runCapture(capture.id)}>Reprocessar</button>
-        <button className="btn ghost sm" onClick={() => db.captures.delete(capture.id)}>Descartar</button>
-        <span className="spacer" />
-        <button className="btn primary" onClick={commit}>Enviar ao workspace</button>
-      </div>
     </div>
   );
 }

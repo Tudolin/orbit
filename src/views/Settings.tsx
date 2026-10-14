@@ -19,6 +19,8 @@ export function Settings() {
   const [msg, setMsg] = useState('');
   const [wipe, setWipe] = useState(false);
   const [oaTest, setOaTest] = useState('');
+  // Campos só liberam depois de carregar, senão o carregamento sobrescreve o que foi digitado.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -28,6 +30,7 @@ export function Settings() {
       setModel((await getSetting('model')) || DEFAULT_MODEL);
       setEffort((await getSetting('effort')) || 'medium');
       setAuto((await getSetting('autoProcess')) || 'on');
+      setLoaded(true);
     })();
   }, []);
 
@@ -72,7 +75,7 @@ export function Settings() {
           <div className="field">
             <label className="label">ANTHROPIC_API_KEY</label>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input className="input mono" type={show ? 'text' : 'password'} autoComplete="off" placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} />
+              <input className="input mono" disabled={!loaded} type={show ? 'text' : 'password'} autoComplete="off" placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} />
               <button className="btn" onClick={() => setShow(!show)}>{show ? 'Ocultar' : 'Ver'}</button>
             </div>
           </div>
@@ -108,7 +111,7 @@ export function Settings() {
           </div>
           <div className="field">
             <label className="label">OpenAI API key (opcional — Whisper)</label>
-            <input className="input mono" type="password" autoComplete="off" placeholder="sk-…" value={openai} onChange={(e) => setOpenai(e.target.value)} />
+            <input className="input mono" disabled={!loaded} type="password" autoComplete="off" placeholder="sk-…" value={openai} onChange={(e) => setOpenai(e.target.value)} />
             <span className="hint" style={{ marginTop: 6 }}>Com a chave, o áudio gravado é transcrito pelo Whisper (mais preciso). Sem ela (campo vazio), usa a transcrição ao vivo do navegador, que é grátis.</span>
             {openaiKeyProblem(openai.trim()) && <div className="error" style={{ marginTop: 8 }}>{openaiKeyProblem(openai.trim())}</div>}
             {openai.trim() && (
@@ -137,7 +140,7 @@ export function Settings() {
       <div className="row">
         <span className="hint">{saved}</span>
         <span className="spacer" />
-        <button className="btn primary" onClick={save}>Salvar configurações</button>
+        <button className="btn primary" disabled={!loaded} onClick={save}>Salvar configurações</button>
       </div>
 
       <SecurityPanel />

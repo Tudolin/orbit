@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, deleteWorkspace, moveWorkspace, uid, type AgendaEvent, type Note, type Task, type TaskStatus } from '../db';
+import { db, noteInWorkspace, deleteWorkspace, moveWorkspace, uid, type AgendaEvent, type Note, type Task, type TaskStatus } from '../db';
 import { parseISO } from '../dates';
 import { Empty, EventEditor, EventItem, NoteCard, NoteEditor, PRIO_RANK, Section, Sheet, STATUS_LABEL, TaskEditor, TaskItem, useWorkspaces } from '../components/ui';
 
@@ -13,7 +13,7 @@ export function Workspaces({ openId, onOpen }: { openId: string | null; onOpen: 
     return m;
   }, []) ?? {};
   const [creating, setCreating] = useState(false);
-  const [renaming, setRenaming] = useState<{ id: string; nome: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; nome: string; palavrasChave: string[] } | null>(null);
 
   const current = workspaces.find((w) => w.id === openId);
   if (current) return <WorkspaceDetail id={current.id} nome={current.nome} onBack={() => onOpen(null)} />;
@@ -27,23 +27,27 @@ export function Workspaces({ openId, onOpen }: { openId: string | null; onOpen: 
             <span className="dot" style={{ background: 'var(--text)' }} />
             <div className="item-main" style={{ cursor: 'pointer' }} onClick={() => onOpen(w.id)}>
               <div className="item-title">{w.nome}</div>
-              <div className="item-meta"><span className="mono">{counts[w.id] ?? 0} tarefas abertas</span></div>
+              <div className="item-meta">
+                <span className="mono">{counts[w.id] ?? 0} tarefas abertas</span>
+                {(w.palavrasChave ?? []).length > 0 && <span>🔑 {w.palavrasChave!.join(', ')}</span>}
+              </div>
             </div>
             <button className="btn ghost sm" disabled={i === 0} onClick={() => moveWorkspace(w.id, -1)} aria-label="Mover para cima">↑</button>
             <button className="btn ghost sm" disabled={i === workspaces.length - 1} onClick={() => moveWorkspace(w.id, 1)} aria-label="Mover para baixo">↓</button>
-            <button className="btn ghost sm" onClick={() => setRenaming({ id: w.id, nome: w.nome })}>Editar</button>
+            <button className="btn ghost sm" onClick={() => setRenaming({ id: w.id, nome: w.nome, palavrasChave: w.palavrasChave ?? [] })}>Editar</button>
           </div>
         ))}
       </Section>
       {creating && (
-        <NameSheet title="Novo workspace" initial="" onClose={() => setCreating(false)} onSave={(nome) => db.workspaces.add({ id: uid(), nome, ordem: workspaces.length, createdAt: Date.now() })} />
+        <NameSheet title="Novo workspace" initial="" onClose={() => setCreating(false)} onSave={(nome, palavrasChave) => db.workspaces.add({ id: uid(), nome, palavrasChave, ordem: workspaces.length, createdAt: Date.now() })} />
       )}
       {renaming && (
         <NameSheet
           title="Editar workspace"
           initial={renaming.nome}
+          initialKeywords={renaming.palavrasChave}
           onClose={() => setRenaming(null)}
-          onSave={(nome) => db.workspaces.update(renaming.id, { nome })}
+          onSave={(nome, palavrasChave) => db.workspaces.update(renaming.id, { nome, palavrasChave })}
           onDelete={() => deleteWorkspace(renaming.id)}
         />
       )}
@@ -51,14 +55,32 @@ export function Workspaces({ openId, onOpen }: { openId: string | null; onOpen: 
   );
 }
 
-function NameSheet(props: { title: string; initial: string; onClose: () => void; onSave: (nome: string) => unknown; onDelete?: () => unknown }) {
+function NameSheet(props: {
+  title: string;
+  initial: string;
+  initialKeywords?: string[];
+  onClose: () => void;
+  onSave: (nome: string, palavrasChave: string[]) => unknown;
+  onDelete?: () => unknown;
+}) {
   const [nome, setNome] = useState(props.initial);
+  const [kw, setKw] = useState((props.initialKeywords ?? []).join(', '));
+  const save = async () => {
+    if (!nome.trim()) return;
+    await props.onSave(nome.trim(), kw.split(',').map((k) => k.trim()).filter(Boolean));
+    props.onClose();
+  };
   const [confirm, setConfirm] = useState(false);
   return (
     <Sheet title={props.title} onClose={props.onClose}>
       <div className="field">
         <label className="label">Nome</label>
-        <input className="input" autoFocus value={nome} onChange={(e) => setNome(e.target.value)} onKeyDown={async (e) => { if (e.key === 'Enter' && nome.trim()) { await props.onSave(nome.trim()); props.onClose(); } }} />
+        <input className="input" autoFocus value={nome} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+      </div>
+      <div className="field">
+        <label className="label">Palavras-chave (separadas por vírgula)</label>
+        <input className="input" value={kw} onChange={(e) => setKw(e.target.value)} placeholder="ex.: cliente, produto, apelido" onKeyDown={(e) => e.key === 'Enter' && save()} />
+        <span className="hint" style={{ marginTop: 6 }}>Ajudam a IA a identificar este workspace quando o nome não é dito (ex.: Cadastra: boticário).</span>
       </div>
       {confirm && <div className="error">Excluir apaga também todos os eventos, tarefas e notas deste workspace. Toque de novo para confirmar.</div>}
       <div className="row">
@@ -68,7 +90,7 @@ function NameSheet(props: { title: string; initial: string; onClose: () => void;
           </button>
         )}
         <span className="spacer" />
-        <button className="btn primary" disabled={!nome.trim()} onClick={async () => { await props.onSave(nome.trim()); props.onClose(); }}>Salvar</button>
+        <button className="btn primary" disabled={!nome.trim()} onClick={save}>Salvar</button>
       </div>
     </Sheet>
   );
@@ -80,7 +102,7 @@ function WorkspaceDetail({ id, nome, onBack }: { id: string; nome: string; onBac
   const [tab, setTab] = useState<Tab>('kanban');
   const events = useLiveQuery(() => db.events.where('workspaceId').equals(id).toArray(), [id]) ?? [];
   const tasks = useLiveQuery(() => db.tasks.where('workspaceId').equals(id).toArray(), [id]) ?? [];
-  const notes = useLiveQuery(() => db.notes.where('workspaceId').equals(id).reverse().sortBy('createdAt'), [id]) ?? [];
+  const notes = useLiveQuery(async () => (await db.notes.toArray()).filter((n) => noteInWorkspace(n, id)).sort((a, b) => b.createdAt - a.createdAt), [id]) ?? [];
   const [editTask, setEditTask] = useState<Task | null | 'new'>(null);
   const [editEv, setEditEv] = useState<AgendaEvent | null | 'new'>(null);
   const [editNote, setEditNote] = useState<Note | null | 'new'>(null);

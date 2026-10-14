@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type AgendaEvent, type Note, type Task } from '../db';
-import { Empty, EventEditor, EventItem, NoteCard, NoteEditor, Section, TaskEditor, TaskItem, useWorkspaces, useWsName } from '../components/ui';
+import { Empty, EventEditor, EventItem, NoteCard, NoteEditor, Section, TaskEditor, TaskItem, useNoteWsName, useWorkspaces, useWsName } from '../components/ui';
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -11,6 +11,7 @@ export function Search() {
   const [ws, setWs] = useState('');
   const workspaces = useWorkspaces();
   const wsName = useWsName();
+  const noteWsName = useNoteWsName();
   const tasks = useLiveQuery(() => db.tasks.toArray(), []) ?? [];
   const events = useLiveQuery(() => db.events.toArray(), []) ?? [];
   const notes = useLiveQuery(() => db.notes.toArray(), []) ?? [];
@@ -20,15 +21,15 @@ export function Search() {
 
   // Termos com "#" casam tags; os demais casam texto, nome do workspace e tags. Todos precisam casar (AND).
   const terms = useMemo(() => norm(q).split(/\s+/).filter(Boolean), [q]);
-  const matches = (text: string, tags: string[], wsId: string) => {
-    if (ws && wsId !== ws) return false;
+  const matches = (text: string, tags: string[], wsId: string, wsIds?: string[]) => {
+    if (ws && wsId !== ws && !wsIds?.includes(ws)) return false;
     if (!terms.length) return !!ws;
     const hay = norm(`${text} ${wsName(wsId)} ${tags.join(' ')}`);
     const tagHay = tags.map((t) => norm(t.startsWith('#') ? t : `#${t}`));
     return terms.every((t) => (t.startsWith('#') ? tagHay.some((h) => h.includes(t)) || norm('#' + wsName(wsId).replace(/\s+/g, '-')).includes(t) : hay.includes(t)));
   };
 
-  const rNotes = notes.filter((n) => matches(`${n.resumo} ${n.decisoes.join(' ')} ${n.participantes.join(' ')}`, n.tags, n.workspaceId)).sort((a, b) => b.createdAt - a.createdAt);
+  const rNotes = notes.filter((n) => matches(`${n.titulo ?? ''} ${n.resumo} ${n.decisoes.join(' ')} ${n.participantes.join(' ')}`, n.tags, n.workspaceIds?.[0] ?? n.workspaceId, n.workspaceIds)).sort((a, b) => b.createdAt - a.createdAt);
   const rTasks = tasks.filter((t) => matches(`${t.descricao} ${t.origem}`, t.tags, t.workspaceId));
   const rEvents = events.filter((e) => matches(`${e.titulo} ${e.origem}`, e.tags, e.workspaceId));
   const total = rNotes.length + rTasks.length + rEvents.length;
@@ -66,7 +67,7 @@ export function Search() {
         <>
           <div className="view-title">🔍 Resultado da busca: {q || wsName(ws)} · {total}</div>
           <Section title="🧠 Segundo Cérebro" dot="yellow" count={rNotes.length} flush>
-            {rNotes.length === 0 ? <Empty>Nenhuma nota.</Empty> : rNotes.map((n) => <NoteCard key={n.id} note={n} wsName={wsName(n.workspaceId)} onEdit={() => setEditNote(n)} />)}
+            {rNotes.length === 0 ? <Empty>Nenhuma nota.</Empty> : rNotes.map((n) => <NoteCard key={n.id} note={n} wsName={noteWsName(n)} onEdit={() => setEditNote(n)} />)}
           </Section>
           <Section title="✅ Tarefas" dot="orange" count={rTasks.length} flush>
             {rTasks.length === 0 ? <Empty>Nenhuma tarefa.</Empty> : rTasks.map((t) => <TaskItem key={t.id} task={t} wsName={wsName(t.workspaceId)} onEdit={() => setEditTask(t)} />)}
