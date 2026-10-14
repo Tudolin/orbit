@@ -30,28 +30,35 @@ O bloco CONTEXTO da mensagem traz a data e hora da captura, a origem e os worksp
    Escreva prazos em ISO 8601 com o fuso informado no CONTEXTO.
 7. Recorrência: tarefa que se repete ("todo dia 9", "toda segunda", "diariamente") recebe recorrencia mensal | semanal | diaria e, como prazo, a PRÓXIMA ocorrência. Caso contrário, recorrencia: "nenhuma".
 
+### Chamados
+
+8. Identifique chamados/tickets (Jira, ServiceNow, Zendesk, GLPI…): IDs como RAD-123, #4521, INC0012345, SR-88 vão em chamado_id (como escrito, sem espaços); o título/nome do chamado vai em chamado_nome. Sem chamado, ambos null.
+9. Um prefixo de ID que coincida com uma palavra-chave de workspace (ex.: "RAD" → Radix) conta como menção explícita (regra 3a).
+10. Se a captura se referir a um chamado aberto listado no CONTEXTO (pelo ID ou pelo nome), repita o mesmo chamado_id e o mesmo workspace dele: é uma atualização, não um chamado novo.
+11. detalhes: informações adicionais sobre a tarefa ditas na captura (contexto, passos, bloqueios, contatos), em 1 a 3 frases. Sem detalhes, null. Não invente.
+
 ### Eventos de agenda
 
-8. Reuniões e compromissos com data/hora (prints de Outlook/Teams, convites) vão em agenda_eventos, com o mesmo critério de workspace das tarefas (regras 2 e 3). data_fim = null se não houver horário de término.
+12. Reuniões e compromissos com data/hora (prints de Outlook/Teams, convites) vão em agenda_eventos, com o mesmo critério de workspace das tarefas (regras 2 e 3). data_fim = null se não houver horário de término.
 
 ### Regras da nota
 
-9. workspace_principal:
+13. workspace_principal:
    - se todas as tarefas com workspace definido forem do mesmo workspace, use esse nome;
    - se houver dois ou mais workspaces diferentes, use "multi";
    - se não houver tarefas, atribua pelo assunto geral da captura, ou null se não for possível.
-10. titulo: até 80 caracteres, fiel ao que foi dito, com ortografia corrigida.
-11. tags: uma tag por workspace envolvido (#radix, #cadastra…), mais #origem/<origem>, #prio/<maior prioridade entre as tarefas> e #status/pendente.
-12. resumo: de 1 a 3 frases em português correto. Registre explicitamente qualquer inferência feita (prazo, prioridade, workspace incerto).
-13. decisoes_tomadas e participantes: decisões e pessoas citadas (listas vazias se não houver).
-14. sugerir_divisao: true somente se workspace_principal for "multi"; caso contrário, false.
-15. Em áudios, ignore vícios de linguagem e repetições da transcrição.
+14. titulo: até 80 caracteres, fiel ao que foi dito, com ortografia corrigida.
+15. tags: uma tag por workspace envolvido (#radix, #cadastra…), mais #origem/<origem>, #prio/<maior prioridade entre as tarefas> e #status/pendente.
+16. resumo: de 1 a 3 frases em português correto. Registre explicitamente qualquer inferência feita (prazo, prioridade, workspace incerto).
+17. decisoes_tomadas e participantes: decisões e pessoas citadas (listas vazias se não houver).
+18. sugerir_divisao: true somente se workspace_principal for "multi"; caso contrário, false.
+19. Em áudios, ignore vícios de linguagem e repetições da transcrição.
 
 ### Exemplo
 
 Captura de quarta, 14/10/2026, 11:58 (-03:00), origem audio: "finalizar onboarding radix e cadastra essa semana"
 
-{"titulo":"Finalizar onboarding da Radix e da Cadastra essa semana","workspace_principal":"multi","tags":["#radix","#cadastra","#origem/audio","#prio/media","#status/pendente"],"resumo":"Finalizar os onboardings da Radix e da Cadastra até sexta-feira, 16/10/2026, às 18:00 (prazo interpretado a partir de 'essa semana'). Prioridade não informada, assumida como média.","decisoes_tomadas":[],"participantes":[],"sugerir_divisao":true,"agenda_eventos":[],"tarefas":[{"titulo":"Finalizar onboarding da Radix","workspace":"Radix","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma"},{"titulo":"Finalizar onboarding da Cadastra","workspace":"Cadastra","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma"}]}`;
+{"titulo":"Finalizar onboarding da Radix e da Cadastra essa semana","workspace_principal":"multi","tags":["#radix","#cadastra","#origem/audio","#prio/media","#status/pendente"],"resumo":"Finalizar os onboardings da Radix e da Cadastra até sexta-feira, 16/10/2026, às 18:00 (prazo interpretado a partir de 'essa semana'). Prioridade não informada, assumida como média.","decisoes_tomadas":[],"participantes":[],"sugerir_divisao":true,"agenda_eventos":[],"tarefas":[{"titulo":"Finalizar onboarding da Radix","workspace":"Radix","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma","chamado_id":null,"chamado_nome":null,"detalhes":null},{"titulo":"Finalizar onboarding da Cadastra","workspace":"Cadastra","workspace_incerto":false,"prioridade":"media","prioridade_inferida":true,"prazo":"2026-10-16T18:00:00-03:00","prazo_inferido":true,"recorrencia":"nenhuma","chamado_id":null,"chamado_nome":null,"detalhes":null}]}`;
 
 const EngineSchema = z.object({
   titulo: z.string(),
@@ -71,6 +78,9 @@ const EngineSchema = z.object({
       prazo: z.string().nullable(),
       prazo_inferido: z.boolean(),
       recorrencia: z.enum(['nenhuma', 'diaria', 'semanal', 'mensal']),
+      chamado_id: z.string().nullable(),
+      chamado_nome: z.string().nullable(),
+      detalhes: z.string().nullable(),
     }),
   ),
   agenda_eventos: z.array(
@@ -100,6 +110,8 @@ export interface EngineInput {
   capturadaEm: number;
   /** "Nome: palavra1, palavra2" por workspace. */
   workspaces: { nome: string; palavrasChave: string[] }[];
+  /** Chamados com tarefa em aberto, para a IA reconhecer atualizações. */
+  chamadosAbertos: { id: string; nome?: string; workspace: string }[];
   signal?: AbortSignal;
 }
 
@@ -121,6 +133,8 @@ function contextBlock(input: EngineInput): string {
     `- Origem: ${input.origem}`,
     '- Workspaces disponíveis (nome: palavras-chave):',
     ws || '(nenhum)',
+    '- Chamados abertos (id — nome · workspace):',
+    input.chamadosAbertos.map((c) => `- ${c.id}${c.nome ? ` — ${c.nome}` : ''} · ${c.workspace}`).join('\n') || '(nenhum)',
   ].join('\n');
 }
 

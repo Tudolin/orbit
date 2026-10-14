@@ -64,6 +64,11 @@ export interface Task {
   serieId?: string;
   /** Dia do mês original (mensal), para "dia 31" não virar "dia 28" para sempre após fevereiro. */
   diaMes?: number;
+  /** Chamado vinculado (Jira, ServiceNow, Zendesk…). */
+  chamadoId?: string;
+  chamadoNome?: string;
+  /** Detalhes acrescentados ao longo do tempo (capturas posteriores ou edição manual). */
+  historico?: { em: number; texto: string; captureId?: string }[];
 }
 
 export interface Note {
@@ -302,6 +307,16 @@ export async function commitCapture(captureId: string, built: Built): Promise<vo
   await db.transaction('rw', [db.events, db.tasks, db.notes, db.captures], async () => {
     await db.events.bulkAdd(built.events);
     await db.tasks.bulkAdd(built.tasks);
+    for (const u of built.updates) {
+      const t = await db.tasks.get(u.id);
+      if (!t) continue;
+      await db.tasks.update(u.id, {
+        historico: [...(t.historico ?? []), { em: Date.now(), texto: u.detalhe, captureId }],
+        ...(u.prazo ? { prazo: u.prazo } : {}),
+        ...(u.prioridade ? { prioridade: u.prioridade } : {}),
+        ...(u.chamadoNome && !t.chamadoNome ? { chamadoNome: u.chamadoNome } : {}),
+      });
+    }
     await db.notes.bulkAdd(built.notes);
     await db.captures.update(captureId, { status: 'triado' });
   });

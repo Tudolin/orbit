@@ -64,6 +64,7 @@ Câmera, microfone e service worker exigem HTTPS (a Vercel já fornece).
    - **Itens sem workspace** ficam em vermelho e bloqueiam o **Aprovar**.
    - **Dividir por workspace** (só em capturas `multi`): cria uma nota por workspace ("<título> — <workspace>"), todas apontando para a mesma captura, e arquiva a original como `#status/dividida`.
    - Se a IA devolver JSON inválido, o app reprocessa uma vez. Na segunda falha, a captura vira uma nota simples sem tarefas.
+   - **Chamados** (RAD-123, #4521, INC0012345…): ID e nome ficam na tarefa. Uma captura posterior sobre o mesmo chamado (pelo ID ou pelo nome) vira **atualização**: os detalhes entram no histórico da tarefa existente, que mantém o workspace dela, sem duplicar. Prazo e prioridade só mudam quando são ditos explicitamente. Use o prefixo do ID como palavra-chave do workspace (ex.: Radix → `RAD`).
    - Prazos são resolvidos a partir do **momento da captura** ("essa semana" → sexta, 18:00), mesmo que você processe depois.
 4. **Visões**: Hoje (timeline + prioridades + entregas), Semana (matriz workspace × dia com volume por cor), Workspaces (Agenda, Kanban, Cérebro) e Busca (palavras-chave + `#tags` + filtro por workspace).
 

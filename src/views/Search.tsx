@@ -26,11 +26,11 @@ export function Search() {
     if (!terms.length) return !!ws;
     const hay = norm(`${text} ${wsName(wsId)} ${tags.join(' ')}`);
     const tagHay = tags.map((t) => norm(t.startsWith('#') ? t : `#${t}`));
-    return terms.every((t) => (t.startsWith('#') ? tagHay.some((h) => h.includes(t)) || norm('#' + wsName(wsId).replace(/\s+/g, '-')).includes(t) : hay.includes(t)));
+    return terms.every((t) => (t.startsWith('#') ? tagHay.some((h) => h.includes(t)) || norm('#' + wsName(wsId).replace(/\s+/g, '-')).includes(t) || hay.includes(t) : hay.includes(t)));
   };
 
   const rNotes = notes.filter((n) => matches(`${n.titulo ?? ''} ${n.resumo} ${n.decisoes.join(' ')} ${n.participantes.join(' ')}`, n.tags, n.workspaceIds?.[0] ?? n.workspaceId, n.workspaceIds)).sort((a, b) => b.createdAt - a.createdAt);
-  const rTasks = tasks.filter((t) => matches(`${t.descricao} ${t.origem}`, t.tags, t.workspaceId));
+  const rTasks = tasks.filter((t) => matches(`${t.descricao} ${t.origem} ${t.chamadoId ?? ''} ${t.chamadoNome ?? ''} ${(t.historico ?? []).map((h) => h.texto).join(' ')}`, t.tags, t.workspaceId));
   const rEvents = events.filter((e) => matches(`${e.titulo} ${e.origem}`, e.tags, e.workspaceId));
   const total = rNotes.length + rTasks.length + rEvents.length;
   const active = terms.length > 0 || !!ws;

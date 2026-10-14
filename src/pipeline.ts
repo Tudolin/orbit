@@ -38,7 +38,14 @@ export async function runCapture(id: string): Promise<void> {
     return;
   }
   try {
-    const workspaces = (await db.workspaces.orderBy('ordem').toArray()).map((w) => ({ nome: w.nome, palavrasChave: w.palavrasChave ?? [] }));
+    const wsList = await db.workspaces.orderBy('ordem').toArray();
+    const workspaces = wsList.map((w) => ({ nome: w.nome, palavrasChave: w.palavrasChave ?? [] }));
+    const wsNome = new Map(wsList.map((w) => [w.id, w.nome]));
+    const chamadosAbertos = (await db.tasks.where('status').notEqual('concluido').toArray())
+      .filter((t) => t.chamadoId)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, 40)
+      .map((t) => ({ id: t.chamadoId!, nome: t.chamadoNome, workspace: wsNome.get(t.workspaceId) ?? '' }));
     const input = {
       apiKey,
       model: (await getSetting('model')) || DEFAULT_MODEL,
@@ -48,6 +55,7 @@ export async function runCapture(id: string): Promise<void> {
       origem: captureOrigem(capture),
       capturadaEm: capture.createdAt,
       workspaces,
+      chamadosAbertos,
       signal: ctrl.signal,
     };
     let resultado;

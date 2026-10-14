@@ -72,6 +72,8 @@ export function TaskItem({ task, wsName, onEdit }: { task: Task; wsName?: string
       <div className="item-main" onClick={onEdit} style={{ cursor: onEdit ? 'pointer' : undefined }}>
         <div className="item-title">{task.descricao}</div>
         <div className="item-meta">
+          {task.chamadoId && <span className="chip ticket">🎫 {task.chamadoId}</span>}
+          {(task.historico?.length ?? 0) > 0 && <span className="mono">📝 {task.historico!.length}</span>}
           <span className={`chip ${task.prioridade === 'alta' ? 'red' : task.prioridade === 'media' ? 'orange' : ''}`}>{PRIO_LABEL[task.prioridade]}</span>
           {task.status === 'em-andamento' && <span className="chip orange">EM ANDAMENTO</span>}
           {task.recorrencia && <span className="chip blue">↻ {REC_LABEL[task.recorrencia].toUpperCase()}</span>}
@@ -181,8 +183,10 @@ export function TaskEditor({ task, defaultWs, onClose }: { task?: Task; defaultW
     task ?? { id: uid(), workspaceId: defaultWs, descricao: '', prazo: null, prioridade: 'media', status: 'pendente', origem: 'texto', tags: [], createdAt: Date.now() },
   );
   const [tags, setTags] = useState(d.tags.join(' '));
+  const [novoDetalhe, setNovoDetalhe] = useState('');
   const save = async () => {
     if (!d.descricao.trim() || (d.recorrencia && !d.prazo)) return;
+    if (novoDetalhe.trim()) d.historico = [...(d.historico ?? []), { em: Date.now(), texto: novoDetalhe.trim() }];
     await db.tasks.put({ ...d, tags: splitTags(tags) });
     onClose();
   };
@@ -203,6 +207,29 @@ export function TaskEditor({ task, defaultWs, onClose }: { task?: Task; defaultW
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
+      </div>
+      <div className="row" style={{ flexWrap: 'nowrap' }}>
+        <div className="field" style={{ flex: 1 }}>
+          <label className="label">Chamado (ID)</label>
+          <input className="input mono" placeholder="RAD-123" value={d.chamadoId ?? ''} onChange={(e) => setD({ ...d, chamadoId: e.target.value.trim() || undefined })} />
+        </div>
+        <div className="field" style={{ flex: 2 }}>
+          <label className="label">Nome do chamado</label>
+          <input className="input" value={d.chamadoNome ?? ''} onChange={(e) => setD({ ...d, chamadoNome: e.target.value || undefined })} />
+        </div>
+      </div>
+      <div className="field">
+        <label className="label">Histórico / detalhes</label>
+        {(d.historico ?? []).length > 0 && (
+          <ul className="plain" style={{ marginBottom: 8 }}>
+            {d.historico!.map((h, i) => (
+              <li key={i}>
+                <span className="mono muted" style={{ fontSize: 12 }}>{new Date(h.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span> {h.texto}
+              </li>
+            ))}
+          </ul>
+        )}
+        <textarea className="textarea" style={{ minHeight: 60 }} placeholder="Adicionar detalhe…" value={novoDetalhe} onChange={(e) => setNovoDetalhe(e.target.value)} />
       </div>
       <div className="field">
         <label className="label">Repetir</label>

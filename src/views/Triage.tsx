@@ -23,7 +23,13 @@ export function Review({ capture }: { capture: Capture }) {
   const [d, setD] = useState<Draft | null>(null);
 
   useEffect(() => {
-    if (!d && workspaces.length && capture.resultado) setD(toDraft(capture.resultado, workspaces, captureOrigem(capture)));
+    if (d || !workspaces.length || !capture.resultado) return;
+    const stored = capture.resultado;
+    db.tasks
+      .where('status')
+      .notEqual('concluido')
+      .toArray()
+      .then((open) => setD(toDraft(stored, workspaces, captureOrigem(capture), open)));
   }, [workspaces, capture, d]);
   if (!d) return null;
 
@@ -120,9 +126,38 @@ export function Review({ capture }: { capture: Capture }) {
                 <span className={`dot ${t.prioridade === 'alta' ? 'red' : 'orange'}`} />
                 <input className="input inline-input" value={t.titulo} onChange={(ev) => setTask(t.key, { titulo: ev.target.value })} aria-label="Título da tarefa" />
               </div>
+              {(t.chamadoId || t.chamadoNome) && (
+                <div className="row triage-controls">
+                  <span className="chip ticket">🎫 {t.chamadoId ?? ''}{t.chamadoId && t.chamadoNome ? ' · ' : ''}{t.chamadoNome ?? ''}</span>
+                </div>
+              )}
+              {t.existente && (
+                <div className="notice triage-controls stack" style={{ gap: 6, marginLeft: 30 }}>
+                  <label className="row" style={{ cursor: 'pointer', flexWrap: 'nowrap' }}>
+                    <input type="checkbox" checked={t.atualizar} onChange={() => setTask(t.key, { atualizar: !t.atualizar })} />
+                    <span>🔗 Adicionar ao chamado existente <b>{t.existente.titulo}</b> ({byId.get(t.existente.workspaceId)?.nome})</span>
+                  </label>
+                  <span className="hint">{t.atualizar ? 'Os detalhes entram no histórico da tarefa existente (sem duplicar).' : 'Será criada uma tarefa nova.'}</span>
+                </div>
+              )}
+              {(t.detalhes !== null || t.existente) && (
+                <div className="row triage-controls">
+                  <textarea
+                    className="input sm-select"
+                    rows={2}
+                    placeholder="Detalhes (vão para o histórico)"
+                    value={t.detalhes ?? ''}
+                    onChange={(ev) => setTask(t.key, { detalhes: ev.target.value || null })}
+                  />
+                </div>
+              )}
               <div className="row triage-controls">
-                <WsSelect value={t.workspaceId} missing={t.incluir && !t.workspaceId} onChange={(id) => setTask(t.key, { workspaceId: id, incerto: false })} />
-                <Inferred on={t.incerto && !!t.workspaceId} label="workspace" onConfirm={() => setTask(t.key, { incerto: false })} />
+                {t.existente && t.atualizar ? (
+                  <span className="chip ws">{byId.get(t.existente.workspaceId)?.nome}</span>
+                ) : (
+                  <WsSelect value={t.workspaceId} missing={t.incluir && !t.workspaceId} onChange={(id) => setTask(t.key, { workspaceId: id, incerto: false })} />
+                )}
+                <Inferred on={t.incerto && !!t.workspaceId && !t.atualizar} label="workspace" onConfirm={() => setTask(t.key, { incerto: false })} />
               </div>
               <div className="row triage-controls">
                 <select className="select sm-select" value={t.prioridade} onChange={(ev) => setTask(t.key, { prioridade: ev.target.value as Prioridade, prioridadeInferida: false })}>

@@ -17,6 +17,12 @@ export interface DraftTask {
   prazoInferido: boolean;
   recorrencia?: Recorrencia;
   incluir: boolean;
+  chamadoId: string | null;
+  chamadoNome: string | null;
+  detalhes: string | null;
+  /** Tarefa aberta do mesmo chamado: a captura vira atualização dela. */
+  existente?: { id: string; titulo: string; workspaceId: string };
+  atualizar: boolean;
 }
 
 export interface DraftEvent {
@@ -85,6 +91,9 @@ function upgradeLegacy(r: LegacyResult): EngineResult {
       prazo: t.prazo,
       prazo_inferido: false,
       recorrencia: (t.recorrencia as EngineResult['tarefas'][number]['recorrencia']) ?? 'nenhuma',
+      chamado_id: null,
+      chamado_nome: null,
+      detalhes: null,
     })),
     agenda_eventos: r.agenda_eventos.map((e) => ({ ...e, workspace: r.workspace_sugerido || null, workspace_incerto: false })),
   };
@@ -95,7 +104,19 @@ export function captureTitle(r: StoredResult | undefined): string {
   return 'titulo' in r ? r.titulo : r.segundo_cerebro_contexto.resumo;
 }
 
-export function toDraft(stored: StoredResult, workspaces: Workspace[], origem: Origem): Draft {
+const normId = (s: string) => s.trim().replace(/^#/, '').replace(/\s+/g, '').toUpperCase();
+
+/** Tarefa aberta do mesmo chamado (pelo ID; sem ID, pelo nome idêntico). */
+export function findOpenTicket(openTasks: Task[], id: string | null, nome: string | null): Task | undefined {
+  if (id) {
+    const hit = openTasks.find((t) => t.chamadoId && normId(t.chamadoId) === normId(id));
+    if (hit) return hit;
+  }
+  if (nome) return openTasks.find((t) => t.chamadoNome && slug(t.chamadoNome) === slug(nome));
+  return undefined;
+}
+
+export function toDraft(stored: StoredResult, workspaces: Workspace[], origem: Origem, openTasks: Task[] = []): Draft {
   const r = 'workspace_sugerido' in stored ? upgradeLegacy(stored) : stored;
   const allWsTags = new Set(workspaces.map(wsTag));
   const resolve = (nome: string | null, incerto: boolean) => {
@@ -111,17 +132,27 @@ export function toDraft(stored: StoredResult, workspaces: Workspace[], origem: O
     // #prio, #origem e #status são recalculados pelo app; tags de workspace vêm de cada item.
     tagsBase: r.tags.filter((t) => !allWsTags.has(t.toLowerCase()) && !/^#(prio|origem|status)\//.test(t)),
     origem,
-    tasks: r.tarefas.map((t, i) => ({
-      key: `t${i}`,
-      titulo: t.titulo,
-      ...resolve(t.workspace, t.workspace_incerto),
-      prioridade: t.prioridade,
-      prioridadeInferida: t.prioridade_inferida,
-      prazo: t.prazo,
-      prazoInferido: t.prazo_inferido,
-      recorrencia: t.recorrencia === 'nenhuma' || !t.prazo ? undefined : t.recorrencia,
-      incluir: true,
-    })),
+    tasks: r.tarefas.map((t, i) => {
+      const hit = findOpenTicket(openTasks, t.chamado_id, t.chamado_nome);
+      return {
+        key: `t${i}`,
+        titulo: t.titulo,
+        // Atualização de chamado existente herda o workspace dele.
+        ...(hit ? { workspaceId: hit.workspaceId, incerto: false } : resolve(t.workspace, t.workspace_incerto)),
+        prioridade: t.prioridade,
+        prioridadeInferida: t.prioridade_inferida,
+        prazo: t.prazo,
+        prazoInferido: t.prazo_inferido,
+        recorrencia: t.recorrencia === 'nenhuma' || !t.prazo ? undefined : t.recorrencia,
+        incluir: true,
+        // Chamado existente mantém o ID/nome como foram cadastrados.
+        chamadoId: hit?.chamadoId ?? t.chamado_id ?? null,
+        chamadoNome: hit?.chamadoNome ?? t.chamado_nome ?? null,
+        detalhes: t.detalhes,
+        existente: hit ? { id: hit.id, titulo: hit.descricao, workspaceId: hit.workspaceId } : undefined,
+        atualizar: !!hit,
+      };
+    }),
     events: r.agenda_eventos.map((e, i) => ({
       key: `e${i}`,
       titulo: e.titulo,
@@ -157,8 +188,18 @@ export function blockers(d: Draft): string[] {
   return out;
 }
 
+/** Atualização de uma tarefa existente (mesmo chamado). */
+export interface TaskUpdate {
+  id: string;
+  detalhe: string;
+  prazo?: string;
+  prioridade?: Prioridade;
+  chamadoNome?: string;
+}
+
 export interface Built {
   tasks: Task[];
+  updates: TaskUpdate[];
   events: AgendaEvent[];
   notes: Note[];
 }
@@ -170,8 +211,19 @@ export function buildRecords(d: Draft, captureId: string, workspaces: Workspace[
   const origemTag = `#origem/${d.origem}`;
   const rank: Record<Prioridade, number> = { alta: 0, media: 1, baixa: 2 };
 
+  const updates: TaskUpdate[] = d.tasks
+    .filter((t) => t.incluir && t.existente && t.atualizar)
+    .map((t) => ({
+      id: t.existente!.id,
+      detalhe: t.detalhes || t.titulo,
+      // Só sobrescreve prazo/prioridade quando foram ditos (não inferidos).
+      prazo: t.prazo && !t.prazoInferido ? t.prazo : undefined,
+      prioridade: !t.prioridadeInferida ? t.prioridade : undefined,
+      chamadoNome: t.chamadoNome ?? undefined,
+    }));
+
   const tasks: Task[] = d.tasks
-    .filter((t) => t.incluir && t.workspaceId)
+    .filter((t) => t.incluir && t.workspaceId && !(t.existente && t.atualizar))
     .map((t) => ({
       id: uid(),
       workspaceId: t.workspaceId!,
@@ -182,6 +234,9 @@ export function buildRecords(d: Draft, captureId: string, workspaces: Workspace[
       origem: d.origem,
       recorrencia: t.prazo ? t.recorrencia : undefined,
       tags: [tagOf(t.workspaceId!), origemTag, `#prio/${t.prioridade}`, '#status/pendente'],
+      chamadoId: t.chamadoId ?? undefined,
+      chamadoNome: t.chamadoNome ?? undefined,
+      historico: t.detalhes ? [{ em: now, texto: t.detalhes, captureId }] : undefined,
       captureId,
       createdAt: now,
     }));
@@ -223,7 +278,7 @@ export function buildRecords(d: Draft, captureId: string, workspaces: Workspace[
       notes.push({ id: uid(), workspaceId: '', workspaceIds: ids, titulo: d.titulo, tags: tagsFor(ids), ...base });
     }
   }
-  return { tasks, events, notes };
+  return { tasks, updates, events, notes };
 }
 
 /** Nota simples sem tarefas, usada quando a engine falha duas vezes em devolver JSON válido. */
