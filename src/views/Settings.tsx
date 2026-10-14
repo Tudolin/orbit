@@ -164,6 +164,7 @@ export function Settings() {
           >
             {wipe ? 'Confirmar: apagar dados deste aparelho' : 'Apagar dados deste aparelho'}
           </button>
+          <div className="hint mono" style={{ textAlign: 'center' }}>NEXUS versão {__BUILD__}</div>
         </div>
       </Section>
     </div>

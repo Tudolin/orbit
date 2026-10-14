@@ -1,9 +1,21 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
+
+// Versão visível em Config: confirma qual deploy está rodando no aparelho.
+const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? (() => {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'dev';
+  }
+})();
+const BUILD = `${sha} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
 export default defineConfig({
   base: './',
+  define: { __BUILD__: JSON.stringify(BUILD) },
   plugins: [
     react(),
     VitePWA({

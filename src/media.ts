@@ -46,12 +46,17 @@ function speechCtor(): (new () => SpeechRecognitionLike) | null {
  * Um resultado que começa com o anterior o substitui; um contido no anterior é ignorado.
  */
 export function joinResults(results: ArrayLike<{ 0: { transcript: string } }>): string {
+  return mergeSegments(Array.from({ length: results.length }, (_, i) => results[i][0].transcript));
+}
+
+/** Junta trechos descartando os que só repetem ou estendem o anterior (resultados cumulativos). */
+export function mergeSegments(segments: string[]): string {
   const parts: string[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const t = results[i][0].transcript.trim();
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+  for (const raw of segments) {
+    const t = raw.trim();
     if (!t) continue;
     const last = parts[parts.length - 1];
-    const norm = (s: string) => s.toLowerCase();
     if (last !== undefined && norm(t).startsWith(norm(last))) parts[parts.length - 1] = t;
     else if (last !== undefined && norm(last).startsWith(norm(t))) continue;
     else parts.push(t);
@@ -83,8 +88,9 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
   }
 
   // Texto das sessões de reconhecimento já encerradas + texto da sessão atual.
-  let committed = '';
+  const sessions: string[] = [];
   let current = '';
+  const full = () => mergeSegments([...sessions, current]);
   let recognition: SpeechRecognitionLike | null = null;
   let stopping = false;
   const Ctor = opts.live ? speechCtor() : null;
@@ -98,12 +104,13 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
     recognition.onresult = (ev) => {
       // Recalcula a sessão inteira a cada evento (não confia em resultIndex, que varia entre navegadores).
       current = joinResults(ev.results);
-      opts.onLive(`${committed} ${current}`.trim());
+      opts.onLive(full());
     };
     recognition.onerror = () => {};
     // O reconhecimento encerra sozinho após pausas: guarda o texto da sessão e reinicia até o usuário parar.
     recognition.onend = () => {
-      committed = `${committed} ${current}`.trim();
+      // Junta também entre sessões: há aparelhos que repetem a frase anterior ao reiniciar.
+      if (current) sessions.push(current);
       current = '';
       if (!stopping) {
         try {
@@ -129,7 +136,7 @@ export async function startRecording(opts: { record: boolean; live: boolean; onL
         blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         stream?.getTracks().forEach((t) => t.stop());
       }
-      return { blob, liveText: `${committed} ${current}`.trim() };
+      return { blob, liveText: full() };
     },
   };
 }
