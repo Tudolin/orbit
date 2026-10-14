@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { commitCapture, db, getSetting, uid, type Capture, type CaptureImage } from '../db';
 import type { EngineResult } from '../engine';
 import { imageSrc, imageToCapture, recorderSupported, speechSupported, startRecording, whisperTranscribe, type Recording } from '../media';
-import { runCapture } from '../pipeline';
+import { appNeedsReload, cancelCapture, isInFlight, runCapture } from '../pipeline';
 import { fmtDateTime } from '../dates';
 import { canPromptInstall, isInstalled, promptInstall } from '../install';
 import { useCanInstall } from './InstallPanel';
@@ -195,6 +195,18 @@ function Composer({ shared }: { shared: string }) {
 }
 
 function CaptureCard({ capture }: { capture: Capture }) {
+  const processing = capture.status === 'processando';
+  const [now, setNow] = useState(Date.now());
+  const startedAt = useRef(Date.now());
+  useEffect(() => {
+    if (!processing) return;
+    startedAt.current = Date.now();
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [processing]);
+  const elapsed = Math.round((now - startedAt.current) / 1000);
+  // "Processando" sem requisição viva nesta aba = travou (app fechado/atualizado no meio).
+  const stuck = processing && !isInFlight(capture.id);
   const label =
     capture.status === 'processando' ? 'Processando…' : capture.status === 'erro' ? 'Erro' : capture.status === 'revisao' ? 'Revisar' : 'Na fila';
   return (
@@ -206,7 +218,7 @@ function CaptureCard({ capture }: { capture: Capture }) {
             {capture.texto ? (capture.texto.length > 220 ? capture.texto.slice(0, 220) + '…' : capture.texto) : `${capture.imagens.length} imagem(ns)`}
           </div>
           <div className="item-meta">
-            <span className="chip">{label.toUpperCase()}</span>
+            <span className="chip">{label.toUpperCase()}{processing && !stuck && elapsed > 0 ? ` ${elapsed}s` : ''}</span>
             <span className="mono">{new Date(capture.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
             {capture.imagens.length > 0 && <span>📷 {capture.imagens.length}</span>}
             {capture.viaAudio && <span>🎙️</span>}
@@ -222,9 +234,21 @@ function CaptureCard({ capture }: { capture: Capture }) {
       )}
       {capture.status === 'erro' && <div className="error" style={{ margin: '0 14px 12px' }}>{capture.erro}</div>}
       {capture.status === 'revisao' && capture.resultado && <Review capture={capture} result={capture.resultado} />}
-      {capture.status !== 'revisao' && capture.status !== 'processando' && (
+      {processing && (stuck || elapsed >= 20) && (
         <div className="row" style={{ padding: '0 14px 12px' }}>
-          <button className="btn sm" onClick={() => runCapture(capture.id)}>{capture.status === 'erro' ? 'Tentar de novo' : 'Processar'}</button>
+          <span className="hint" style={{ flex: 1 }}>{stuck ? 'O processamento foi interrompido.' : 'Está demorando mais que o normal.'}</span>
+          {stuck ? (
+            <button className="btn sm" onClick={() => runCapture(capture.id)}>Tentar de novo</button>
+          ) : (
+            <button className="btn sm" onClick={() => cancelCapture(capture.id)}>Cancelar</button>
+          )}
+        </div>
+      )}
+      {capture.status !== 'revisao' && !processing && (
+        <div className="row" style={{ padding: '0 14px 12px' }}>
+          <button className="btn sm" onClick={() => runCapture(capture.id)}>
+            {appNeedsReload() ? 'Recarregar e processar' : capture.status === 'erro' ? 'Tentar de novo' : 'Processar'}
+          </button>
           <button className="btn ghost sm" onClick={() => db.captures.delete(capture.id)}>Descartar</button>
         </div>
       )}

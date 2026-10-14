@@ -81,6 +81,7 @@ export interface EngineInput {
   imagens: CaptureImage[];
   viaAudio: boolean;
   workspaces: string[];
+  signal?: AbortSignal;
 }
 
 function contextBlock(input: EngineInput): string {
@@ -103,7 +104,8 @@ function contextBlock(input: EngineInput): string {
 }
 
 export async function processCapture(input: EngineInput): Promise<EngineResult> {
-  const client = new Anthropic({ apiKey: input.apiKey, dangerouslyAllowBrowser: true });
+  // Sem isso o SDK espera até 10 min (com novas tentativas) numa rede travada.
+  const client = new Anthropic({ apiKey: input.apiKey, dangerouslyAllowBrowser: true, timeout: 90_000, maxRetries: 1 });
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
     ...input.imagens.map(
@@ -128,7 +130,7 @@ export async function processCapture(input: EngineInput): Promise<EngineResult> 
     output_config: { effort: input.effort, format: betaZodOutputFormat(EngineSchema) },
     messages: [{ role: 'user', content }],
     ...fallback,
-  });
+  }, { signal: input.signal });
 
   if (response.stop_reason === 'refusal') {
     throw new Error(`A engine recusou a captura${response.stop_details?.explanation ? `: ${response.stop_details.explanation}` : '.'}`);
@@ -145,6 +147,7 @@ export function describeError(e: unknown): string {
   if (e instanceof Anthropic.PermissionDeniedError) return 'Chave sem permissão para este modelo.';
   if (e instanceof Anthropic.RateLimitError) return 'Limite de requisições atingido. Tente de novo em instantes.';
   if (e instanceof Anthropic.BadRequestError) return `Requisição rejeitada: ${e.message}`;
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return 'A API demorou demais para responder (rede lenta ou VPN?). Tente de novo.';
   if (e instanceof Anthropic.APIConnectionError) return 'Sem conexão com a API. A captura ficou salva na Inbox.';
   if (e instanceof Anthropic.APIError) return `Erro da API (${e.status ?? '?'}): ${e.message}`;
   return e instanceof Error ? e.message : String(e);
